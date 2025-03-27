@@ -1,71 +1,157 @@
-import { app, shell, BrowserWindow } from 'electron'
-import { join } from 'path'
-import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import icon from '../../resources/icon.png?asset'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  globalShortcut,
+  screen,
+  ipcMain,
+} from "electron";
+import { join } from "path";
+import { electronApp, optimizer, is } from "@electron-toolkit/utils";
+import icon from "../../resources/icon.png?asset";
+
+// Импорт исходного кода системы
+import { setupWhisperService } from "./services/whisper";
+import { setupGeminiService } from "./services/gemini";
+import { setupAudioCapture } from "./services/audio-capture";
+import { registerHotkeys } from "./services/hotkeys";
+import { setupQueueService } from "./services/queue";
+
+// Хранение окон приложения
+let mainWindow: BrowserWindow | null = null;
+let isVisible = true;
 
 function createWindow(): void {
-  // Create the browser window.
-  const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+  // Получаем размер основного экрана
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+
+  // Создаем основное окно
+  mainWindow = new BrowserWindow({
+    width: 660,
+    height: 320,
+    x: width - 720,
+    y: height - 650,
     show: false,
-    autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    frame: false,
+    transparent: true,
+    resizable: false,
+    skipTaskbar: false,
+    alwaysOnTop: true,
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
-    }
-  })
+      preload: join(__dirname, "../preload/index.js"),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
-  })
+  // Настраиваем поведение окна
+  mainWindow.on("ready-to-show", () => {
+    mainWindow?.show();
+  });
 
+  // Запрещаем изменение размеров окна
+  mainWindow.setResizable(false);
+
+  // Предотвращаем открытие внешних ссылок в приложении
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
-    return { action: 'deny' }
-  })
+    shell.openExternal(details.url);
+    return { action: "deny" };
+  });
 
-  // HMR for renderer base on electron-vite cli.
-  // Load the remote URL for development or the local html file for production.
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  // Загружаем UI
+  if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
+    mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
   }
+
+  // Инициализируем сервисы
+  setupWhisperService(mainWindow);
+  setupGeminiService(mainWindow);
+  setupAudioCapture(mainWindow);
+  setupQueueService(mainWindow);
 }
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
+// Инициализация приложения
 app.whenReady().then(() => {
-  // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+  // Установка ID для Windows
+  electronApp.setAppUserModelId("com.voice-copilot");
 
-  // Default open or close DevTools by F12 in development
-  // and ignore CommandOrControl + R in production.
-  // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
-  })
+  // Настройка DevTools в режиме разработки
+  app.on("browser-window-created", (_, window) => {
+    optimizer.watchWindowShortcuts(window);
+  });
 
-  createWindow()
+  // Создаем главное окно
+  createWindow();
 
-  app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
-})
+  // Регистрируем горячие клавиши
+  registerHotkeys({
+    toggleVisibility: () => {
+      if (mainWindow) {
+        if (isVisible) {
+          mainWindow.hide();
+        } else {
+          mainWindow.show();
+        }
+        isVisible = !isVisible;
+      }
+    },
+    moveWindow: (direction) => {
+      if (mainWindow) {
+        const [x, y] = mainWindow.getPosition();
+        const step = 62; // Шаг перемещения в пикселях
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
+        switch (direction) {
+          case "up":
+            mainWindow.setPosition(x, y - step);
+            break;
+          case "down":
+            mainWindow.setPosition(x, y + step);
+            break;
+          case "left":
+            mainWindow.setPosition(x - step, y);
+            break;
+          case "right":
+            mainWindow.setPosition(x + step, y);
+            break;
+        }
+      }
+    },
+  });
+
+  // IPC обработчики
+  ipcMain.handle("is-screen-sharing", () => {
+    // Во время демонстрации экрана скрываем приложение
+    return mainWindow
+      ?.getContentSource()
+      .then((source) => {
+        if (source && source.id) {
+          mainWindow?.hide();
+          return true;
+        }
+        return false;
+      })
+      .catch(() => false);
+  });
+
+  // Восстановление окна при активации (macOS)
+  app.on("activate", function () {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+// Корректное завершение работы приложения
+app.on("window-all-closed", () => {
+  // На macOS обычно не закрываем приложение полностью
+  if (process.platform !== "darwin") {
+    app.quit();
   }
-})
+});
 
-// In this file you can include the rest of your app"s specific main process
-// code. You can also put them in separate files and require them here.
+// Отмена регистрации горячих клавиш при выходе
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
+});

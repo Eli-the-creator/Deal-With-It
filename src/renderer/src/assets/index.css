@@ -2,71 +2,66 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body, :root {
-  height: 100%;
+.frosted-glass {
+  background: rgba(26, 26, 26, 0.8);
+  backdrop-filter: blur(8px);
+}
+
+.auth-button {
+  background: rgba(252, 252, 252, 0.98);
+  color: rgba(60, 60, 60, 0.9);
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  z-index: 2;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+.auth-button:hover {
+  background: rgba(255, 255, 255, 1);
+}
+
+.auth-button::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  background: linear-gradient(45deg, #ff000000, #0000ff00);
+  z-index: -1;
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: inherit;
+  filter: blur(24px);
+  opacity: 0;
+}
+
+.auth-button:hover::before {
+  background: linear-gradient(
+    45deg,
+    rgba(255, 0, 0, 0.4),
+    rgba(0, 0, 255, 0.4)
+  );
+  filter: blur(48px);
+  inset: -16px;
+  opacity: 1;
 }
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
+    /* Основной фон: темный с 80% непрозрачностью */
+    --background: 0 0% 1% / 27.5%;
+    /* Светлый текст для хорошей читаемости на темном фоне */
+    --foreground: 0 0% 100%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
-
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
-
-    --radius: 0.5rem;
-  }
-
-  .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
+    /* Боковая панель немного темнее основного фона */
+    --sidebar-background: 0 0% 8% / 85%;
+    --sidebar-foreground: 0 0% 85%;
+    /* Основной цвет элементов в боковой панели */
+    --sidebar-primary: 220 70% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    /* Акцентный цвет для выделения активных элементов */
+    --sidebar-accent: 220 30% 15%;
+    --sidebar-accent-foreground: 220 70% 60%;
+    /* Границы элементов */
+    --sidebar-border: 220 20% 20% / 80%;
+    --sidebar-ring: 220 70% 60% / 90%;
   }
 }
 
@@ -75,6 +70,6 @@ html, body, :root {
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground; /* This now uses the correct classes */
   }
 }
