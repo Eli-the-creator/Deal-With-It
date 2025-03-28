@@ -160,10 +160,10 @@ const App: React.FC = () => {
               // Start a lightweight continuous transcription system
               // This doesn't actually transcribe during recording, just monitors
               setTimeout(() => {
-                startContinuousTranscription(2000, "en");
+                startContinuousTranscription(500, "en");
                 debugLog("App", "DeepGram monitoring started");
                 isTogglingRef.current = false;
-              }, 1000);
+              }, 200);
             } else {
               debugLog("App", "Failed to start audio capture");
               isTogglingRef.current = false;
