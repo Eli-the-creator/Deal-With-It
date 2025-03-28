@@ -77,7 +77,7 @@ async function transcribeAudio(
     const modelPath = getModelPath("small");
 
     // Настройка языковой модели
-    const langParam = language === "auto" ? [] : [`-l ${language}`];
+    const langParam = language === "ru" ? [] : [`-l ${language}`];
 
     return new Promise((resolve, reject) => {
       const whisperProcess = spawn(whisperPath, [

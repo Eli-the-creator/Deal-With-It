@@ -62,7 +62,7 @@ async function transcribeAudio(audioPath, language = "ru") {
     const tempOutputPath = path.join(electron.app.getPath("temp"), "transcript.txt");
     const whisperPath = getWhisperPath();
     const modelPath = getModelPath("small");
-    const langParam = language === "auto" ? [] : [`-l ${language}`];
+    const langParam = language === "ru" ? [] : [`-l ${language}`];
     return new Promise((resolve, reject) => {
       const whisperProcess = child_process.spawn(whisperPath, [
         "-m",
@@ -6278,15 +6278,19 @@ let captureSettings = {
   // Моно для лучшего распознавания речи
 };
 function setupAudioCapture(mainWindow2) {
+  console.log("Setting up audio capture service...");
   const sendCaptureSettings = () => {
     mainWindow2.webContents.send("audio-capture-settings", captureSettings);
+    console.log("Sent audio capture settings to renderer", captureSettings);
   };
   electron.ipcMain.handle("initialize-audio-capture", async () => {
     try {
+      console.log("Initializing audio capture...");
       const sources = await electron.desktopCapturer.getSources({
         types: ["audio"],
         fetchWindowIcons: false
       });
+      console.log(`Found ${sources.length} audio sources`);
       mainWindow2.webContents.send("audio-sources", sources);
       sendCaptureSettings();
       return { success: true };
@@ -6301,6 +6305,7 @@ function setupAudioCapture(mainWindow2) {
   electron.ipcMain.handle(
     "update-audio-settings",
     (_, newSettings) => {
+      console.log("Updating audio settings", newSettings);
       captureSettings = {
         ...captureSettings,
         ...newSettings
@@ -6310,6 +6315,10 @@ function setupAudioCapture(mainWindow2) {
     }
   );
   electron.ipcMain.handle("start-audio-capture", async (_, sourceId) => {
+    console.log("Received request to start audio capture", {
+      sourceId,
+      isAlreadyCapturing: isCapturing
+    });
     if (isCapturing) {
       return { success: true, alreadyCapturing: true };
     }
@@ -6319,6 +6328,7 @@ function setupAudioCapture(mainWindow2) {
         settings: captureSettings
       });
       isCapturing = true;
+      console.log("Audio capture started successfully");
       return { success: true };
     } catch (error) {
       console.error("Ошибка при запуске захвата аудио:", error);
@@ -6329,12 +6339,16 @@ function setupAudioCapture(mainWindow2) {
     }
   });
   electron.ipcMain.handle("stop-audio-capture", () => {
+    console.log("Received request to stop audio capture", {
+      isCurrentlyCapturing: isCapturing
+    });
     if (!isCapturing) {
       return { success: true, notCapturing: true };
     }
     try {
       mainWindow2.webContents.send("stop-capture");
       isCapturing = false;
+      console.log("Audio capture stopped successfully");
       return { success: true };
     } catch (error) {
       console.error("Ошибка при остановке захвата аудио:", error);
@@ -6345,6 +6359,10 @@ function setupAudioCapture(mainWindow2) {
     }
   });
   electron.ipcMain.handle("get-capture-status", () => {
+    console.log("Getting capture status", {
+      isCapturing,
+      settings: captureSettings
+    });
     return {
       isCapturing,
       settings: captureSettings
@@ -6352,11 +6370,13 @@ function setupAudioCapture(mainWindow2) {
   });
   electron.ipcMain.on("audio-data", (_, audioData) => {
     mainWindow2.webContents.send("process-audio-data", audioData);
+    console.log(`Received and forwarded audio data: ${audioData.length} bytes`);
   });
   electron.ipcMain.handle("save-debug-audio", (_, audioData) => {
     try {
       const debugFilePath = path.join(electron.app.getPath("temp"), "debug_audio.wav");
       fs.writeFileSync(debugFilePath, audioData);
+      console.log(`Saved debug audio to ${debugFilePath}`);
       return { success: true, path: debugFilePath };
     } catch (error) {
       console.error("Ошибка при сохранении отладочного аудио:", error);
@@ -6366,9 +6386,12 @@ function setupAudioCapture(mainWindow2) {
       };
     }
   });
+  console.log("Audio capture service setup complete");
 }
 const HOTKEYS = {
-  ADD_LAST_TEXT: "CommandOrControl+I",
+  TOGGLE_CAPTURE: "CommandOrControl+I",
+  // Включение/выключение записи микрофона
+  ADD_LAST_TEXT: "CommandOrControl+O",
   // Добавление последнего распознанного текста
   ADD_SCREENSHOT: "CommandOrControl+H",
   // Создание и добавление скриншота
@@ -6391,6 +6414,21 @@ let registeredHotkeys = [];
 function registerHotkeys(callbacks) {
   unregisterAllHotkeys();
   try {
+    console.log("Регистрация горячих клавиш...");
+    electron.globalShortcut.register(HOTKEYS.TOGGLE_CAPTURE, () => {
+      console.log("Горячая клавиша нажата: TOGGLE_CAPTURE");
+      electron.BrowserWindow.getAllWindows().forEach((window2) => {
+        window2.webContents.send("hotkey-triggered", "toggle-capture");
+      });
+    });
+    registeredHotkeys.push(HOTKEYS.TOGGLE_CAPTURE);
+    electron.globalShortcut.register(HOTKEYS.ADD_LAST_TEXT, () => {
+      console.log("Горячая клавиша нажата: ADD_LAST_TEXT");
+      electron.BrowserWindow.getAllWindows().forEach((window2) => {
+        window2.webContents.send("hotkey-triggered", "add-last-text");
+      });
+    });
+    registeredHotkeys.push(HOTKEYS.ADD_LAST_TEXT);
     electron.globalShortcut.register(HOTKEYS.MOVE_UP, () => {
       callbacks.moveWindow("up");
     });
@@ -6411,12 +6449,6 @@ function registerHotkeys(callbacks) {
       callbacks.toggleVisibility();
     });
     registeredHotkeys.push(HOTKEYS.TOGGLE_COLLAPSE);
-    electron.globalShortcut.register(HOTKEYS.ADD_LAST_TEXT, () => {
-      electron.BrowserWindow.getAllWindows().forEach((window2) => {
-        window2.webContents.send("hotkey-triggered", "add-last-text");
-      });
-    });
-    registeredHotkeys.push(HOTKEYS.ADD_LAST_TEXT);
     electron.globalShortcut.register(HOTKEYS.ADD_SCREENSHOT, () => {
       electron.BrowserWindow.getAllWindows().forEach((window2) => {
         window2.webContents.send("hotkey-triggered", "add-screenshot");
@@ -6759,6 +6791,10 @@ electron.app.on("window-all-closed", () => {
 });
 electron.app.on("will-quit", () => {
   electron.globalShortcut.unregisterAll();
+});
+Object.defineProperty(exports, "desktopCapturer", {
+  enumerable: true,
+  get: () => electron.desktopCapturer
 });
 exports.File = File2;
 exports.FormData = FormData;

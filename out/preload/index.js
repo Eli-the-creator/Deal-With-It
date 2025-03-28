@@ -31,10 +31,28 @@ const api = {
       return () => electron.ipcRenderer.removeListener("audio-capture-settings", handler);
     },
     // Обработчик начала/остановки захвата
+    // onCaptureControl: (callback: (command: { action: string }) => void) => {
+    //   const handler = (_: any, command: { action: string }) =>
+    //     callback(command);
+    //   ipcRenderer.on("capture-control", handler);
+    //   return () => ipcRenderer.removeListener("capture-control", handler);
+    // },
     onCaptureControl: (callback) => {
       const handler = (_, command) => callback(command);
       electron.ipcRenderer.on("capture-control", handler);
       return () => electron.ipcRenderer.removeListener("capture-control", handler);
+    },
+    // Обработчик старта захвата
+    onStartCapture: (callback) => {
+      const handler = (_, data) => callback(data);
+      electron.ipcRenderer.on("start-capture", handler);
+      return () => electron.ipcRenderer.removeListener("start-capture", handler);
+    },
+    // Обработчик остановки захвата
+    onStopCapture: (callback) => {
+      const handler = () => callback();
+      electron.ipcRenderer.on("stop-capture", handler);
+      return () => electron.ipcRenderer.removeListener("stop-capture", handler);
     }
   },
   // Распознавание речи (Whisper)

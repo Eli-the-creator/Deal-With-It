@@ -46,11 +46,31 @@ const api = {
     },
 
     // Обработчик начала/остановки захвата
+    // onCaptureControl: (callback: (command: { action: string }) => void) => {
+    //   const handler = (_: any, command: { action: string }) =>
+    //     callback(command);
+    //   ipcRenderer.on("capture-control", handler);
+    //   return () => ipcRenderer.removeListener("capture-control", handler);
+    // },
+
     onCaptureControl: (callback: (command: { action: string }) => void) => {
       const handler = (_: any, command: { action: string }) =>
         callback(command);
       ipcRenderer.on("capture-control", handler);
       return () => ipcRenderer.removeListener("capture-control", handler);
+    },
+    // Обработчик старта захвата
+    onStartCapture: (callback: (data: any) => void) => {
+      const handler = (_: any, data: any) => callback(data);
+      ipcRenderer.on("start-capture", handler);
+      return () => ipcRenderer.removeListener("start-capture", handler);
+    },
+
+    // Обработчик остановки захвата
+    onStopCapture: (callback: () => void) => {
+      const handler = () => callback();
+      ipcRenderer.on("stop-capture", handler);
+      return () => ipcRenderer.removeListener("stop-capture", handler);
     },
   },
 

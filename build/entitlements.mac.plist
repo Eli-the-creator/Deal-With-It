@@ -8,5 +8,29 @@
     <true/>
     <key>com.apple.security.cs.allow-dyld-environment-variables</key>
     <true/>
+
+    <!-- start -->
+   <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.debugger</key>
+    <true/>
+    <key>com.apple.security.device.camera</key>
+    <true/>
+    <key>com.apple.security.device.microphone</key>
+    <true/>
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <!-- UPDATE START -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+      <key>NSMicrophoneUsageDescription</key>
+    <string>Приложению нужен доступ к микрофону для записи аудио.</string>
+    <key>NSSystemExtensionUsageDescription</key>
+    <string>Приложению требуются системные расширения для дополнительных функций.</string>
+    <!-- end -->
   </dict>
 </plist>
