@@ -185,36 +185,52 @@ export function useAudioCapture() {
     window.api.audio.sendAudioData(data);
   }, []);
 
-  // Начало захвата аудио
+  //   // Начало захвата аудио
   //   const startCapture = useCallback(
   //     async (sourceId?: string) => {
   //       try {
+  //         console.log("Starting audio capture...");
+
   //         // Создаем AudioContext, если еще не создан
-  //         if (!audioContext) {
-  //           const newAudioContext = new (window.AudioContext ||
+  //         let newAudioContext = audioContext;
+  //         if (!newAudioContext) {
+  //           newAudioContext = new (window.AudioContext ||
   //             (window as any).webkitAudioContext)({
   //             sampleRate: captureStatus?.settings.sampleRate || 16000,
   //           });
   //           setAudioContext(newAudioContext);
   //         }
 
-  //         // Запрашиваем доступ к микрофону
-  //         const stream = await navigator.mediaDevices.getUserMedia({
+  //         // Запрашиваем доступ к микрофону с более детальными опциями
+  //         const constraints = {
   //           audio: {
   //             echoCancellation: true,
   //             noiseSuppression: true,
   //             autoGainControl: true,
+  //             channelCount: captureStatus?.settings.channels || 1,
+  //             sampleRate: captureStatus?.settings.sampleRate || 16000,
   //           },
-  //         });
+  //         };
 
-  //         // Создаем MediaRecorder для записи аудио
+  //         console.log("Requesting media with constraints:", constraints);
+  //         const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+  //         console.log("Media stream obtained. Creating recorder...");
+
+  //         // Создаем MediaRecorder для записи аудио с более надежными настройками
   //         const recorder = new MediaRecorder(stream, {
-  //           mimeType: "audio/webm",
+  //           mimeType: MediaRecorder.isTypeSupported("audio/webm")
+  //             ? "audio/webm"
+  //             : "audio/mp4",
   //         });
 
-  //         // Настраиваем обработчик данных
+  //         console.log("Recorder created with MIME type:", recorder.mimeType);
+
+  //         // Настраиваем обработчик данных с более подробным логированием
   //         recorder.ondataavailable = async (event) => {
   //           if (event.data.size > 0) {
+  //             console.log(`Received audio chunk: ${event.data.size} bytes`);
+
   //             const fileReader = new FileReader();
 
   //             fileReader.onload = () => {
@@ -222,6 +238,7 @@ export function useAudioCapture() {
   //                 const arrayBuffer = fileReader.result as ArrayBuffer;
   //                 const uint8Array = new Uint8Array(arrayBuffer);
   //                 sendAudioData(uint8Array);
+  //                 console.log(`Sent audio data: ${uint8Array.length} bytes`);
   //               }
   //             };
 
@@ -231,36 +248,40 @@ export function useAudioCapture() {
 
   //         // Настраиваем обработчики событий MediaRecorder
   //         recorder.onstart = () => {
+  //           console.log("MediaRecorder started");
   //           setIsCapturing(true);
   //         };
 
   //         recorder.onstop = () => {
+  //           console.log("MediaRecorder stopped");
   //           setIsCapturing(false);
   //         };
 
   //         recorder.onerror = (event) => {
+  //           console.error("MediaRecorder error:", event);
   //           setError(`Ошибка MediaRecorder: ${event.error}`);
   //           setIsCapturing(false);
   //         };
 
-  //         // Запускаем MediaRecorder
-  //         recorder.start(1000); // Получаем данные каждую секунду
+  //         // Запускаем MediaRecorder с меньшим таймслотом для большей реактивности
+  //         recorder.start(500); // Получаем данные каждые полсекунды
   //         setMediaRecorder(recorder);
 
   //         // Сообщаем основному процессу о начале захвата
+  //         console.log("Notifying main process about capture start");
   //         const result = await window.api.audio.startCapture(sourceId);
 
   //         if (!result.success) {
   //           throw new Error(result.error || "Не удалось начать захват аудио");
   //         }
 
+  //         console.log("Audio capture successfully started");
   //         setIsCapturing(true);
   //         return true;
   //       } catch (err) {
-  //         setError(
-  //           `Ошибка при начале захвата аудио: ${err instanceof Error ? err.message : String(err)}`
-  //         );
-  //         console.error("Ошибка при начале захвата аудио:", err);
+  //         const errorMessage = `Ошибка при начале захвата аудио: ${err instanceof Error ? err.message : String(err)}`;
+  //         console.error(errorMessage, err);
+  //         setError(errorMessage);
   //         setIsCapturing(false);
   //         return false;
   //       }
@@ -268,12 +289,62 @@ export function useAudioCapture() {
   //     [audioContext, captureStatus, sendAudioData]
   //   );
 
-  // Начало захвата аудио
+  //   // Остановка захвата аудио
+  //   const stopCapture = useCallback(async () => {
+  //     try {
+  //       console.log("Attempting to stop audio capture...");
+
+  //       // Останавливаем MediaRecorder
+  //       if (mediaRecorder && mediaRecorder.state !== "inactive") {
+  //         console.log("Stopping MediaRecorder");
+  //         mediaRecorder.stop();
+
+  //         // Останавливаем все дорожки в потоке
+  //         console.log("Stopping all tracks in the stream");
+  //         const tracks = mediaRecorder.stream.getTracks();
+  //         tracks.forEach((track) => {
+  //           console.log(`Stopping track: ${track.kind}`);
+  //           track.stop();
+  //         });
+  //       } else {
+  //         console.log("MediaRecorder already inactive or not available");
+  //       }
+
+  //       // Clear any references to avoid memory leaks
+  //       setMediaRecorder(null);
+  //       if (audioContext) {
+  //         console.log("Closing AudioContext");
+  //         await audioContext.close();
+  //         setAudioContext(null);
+  //       }
+
+  //       // Сообщаем основному процессу об остановке захвата
+  //       console.log("Notifying main process about capture stop");
+  //       const result = await window.api.audio.stopCapture();
+
+  //       if (!result.success && !result.notCapturing) {
+  //         throw new Error(result.error || "Не удалось остановить захват аудио");
+  //       }
+
+  //       setIsCapturing(false);
+  //       console.log("Audio capture successfully stopped");
+  //       return true;
+  //     } catch (err) {
+  //       setError(
+  //         `Ошибка при остановке захвата аудио: ${err instanceof Error ? err.message : String(err)}`
+  //       );
+  //       console.error("Ошибка при остановке захвата аудио:", err);
+
+  //       // Force capturing state to false even if there was an error
+  //       setIsCapturing(false);
+  //       return false;
+  //     }
+  //   }, [mediaRecorder, audioContext]);
 
   const startCapture = useCallback(
     async (sourceId?: string) => {
       try {
-        console.log("Starting audio capture...");
+        console.log("Starting audio capture in renderer process...");
 
         // Создаем AudioContext, если еще не создан
         let newAudioContext = audioContext;
@@ -297,9 +368,28 @@ export function useAudioCapture() {
         };
 
         console.log("Requesting media with constraints:", constraints);
+
+        // First check if we have the necessary permissions
+        try {
+          // Request permission explicitly before trying to get the stream
+          await navigator.mediaDevices.getUserMedia({ audio: true });
+          console.log("Audio permission granted");
+        } catch (permError) {
+          console.error("Failed to get audio permission:", permError);
+          throw new Error("Audio permission denied");
+        }
+
+        // Now get the actual stream with our constraints
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
         console.log("Media stream obtained. Creating recorder...");
+
+        // Check if any MediaRecorder is still active and stop it
+        if (mediaRecorder && mediaRecorder.state !== "inactive") {
+          console.log("Stopping previous MediaRecorder");
+          mediaRecorder.stop();
+          mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+        }
 
         // Создаем MediaRecorder для записи аудио с более надежными настройками
         const recorder = new MediaRecorder(stream, {
@@ -347,25 +437,36 @@ export function useAudioCapture() {
           setIsCapturing(false);
         };
 
-        // Запускаем MediaRecorder с меньшим таймслотом для большей реактивности
-        recorder.start(500); // Получаем данные каждые полсекунды
-        setMediaRecorder(recorder);
-
-        // Сообщаем основному процессу о начале захвата
+        // Notify the main process before starting the MediaRecorder
         console.log("Notifying main process about capture start");
         const result = await window.api.audio.startCapture(sourceId);
 
         if (!result.success) {
+          // If main process reports failure, clean up and throw error
+          stream.getTracks().forEach((track) => track.stop());
           throw new Error(result.error || "Не удалось начать захват аудио");
         }
 
-        console.log("Audio capture successfully started");
+        // Start the MediaRecorder *after* the main process confirms it's ready
+        // Get more frequent chunks for better responsiveness (300ms)
+        recorder.start(300);
+        setMediaRecorder(recorder);
+
+        console.log("Audio capture successfully started in renderer");
         setIsCapturing(true);
         return true;
       } catch (err) {
         const errorMessage = `Ошибка при начале захвата аудио: ${err instanceof Error ? err.message : String(err)}`;
         console.error(errorMessage, err);
         setError(errorMessage);
+
+        // Try to notify main process of failure if we previously didn't
+        try {
+          await window.api.audio.stopCapture();
+        } catch (stopErr) {
+          console.error("Failed to stop capture after error:", stopErr);
+        }
+
         setIsCapturing(false);
         return false;
       }
@@ -373,40 +474,17 @@ export function useAudioCapture() {
     [audioContext, captureStatus, sendAudioData]
   );
 
-  // Остановка захвата аудио
-  //   const stopCapture = useCallback(async () => {
-  //     try {
-  //       // Останавливаем MediaRecorder
-  //       if (mediaRecorder && mediaRecorder.state !== "inactive") {
-  //         mediaRecorder.stop();
-
-  //         // Останавливаем все дорожки в потоке
-  //         mediaRecorder.stream.getTracks().forEach((track) => track.stop());
-  //       }
-
-  //       // Сообщаем основному процессу об остановке захвата
-  //       const result = await window.api.audio.stopCapture();
-
-  //       if (!result.success && !result.notCapturing) {
-  //         throw new Error(result.error || "Не удалось остановить захват аудио");
-  //       }
-
-  //       setIsCapturing(false);
-  //       return true;
-  //     } catch (err) {
-  //       setError(
-  //         `Ошибка при остановке захвата аудио: ${err instanceof Error ? err.message : String(err)}`
-  //       );
-  //       console.error("Ошибка при остановке захвата аудио:", err);
-  //       return false;
-  //     }
-  //   }, [mediaRecorder]);
-
+  // Modified stopCapture function in useAudioCapture.ts
   const stopCapture = useCallback(async () => {
     try {
-      console.log("Attempting to stop audio capture...");
+      console.log("Stopping audio capture in renderer...");
 
-      // Останавливаем MediaRecorder
+      // First notify the main process to stop capture
+      // This ensures the buffer on main side stops accepting data
+      console.log("Notifying main process about capture stop");
+      const result = await window.api.audio.stopCapture();
+
+      // Only then stop the MediaRecorder
       if (mediaRecorder && mediaRecorder.state !== "inactive") {
         console.log("Stopping MediaRecorder");
         mediaRecorder.stop();
@@ -430,16 +508,12 @@ export function useAudioCapture() {
         setAudioContext(null);
       }
 
-      // Сообщаем основному процессу об остановке захвата
-      console.log("Notifying main process about capture stop");
-      const result = await window.api.audio.stopCapture();
-
       if (!result.success && !result.notCapturing) {
         throw new Error(result.error || "Не удалось остановить захват аудио");
       }
 
       setIsCapturing(false);
-      console.log("Audio capture successfully stopped");
+      console.log("Audio capture successfully stopped in renderer");
       return true;
     } catch (err) {
       setError(

@@ -450,18 +450,43 @@ app.whenReady().then(() => {
   });
 
   // IPC обработчики
+  // ipcMain.handle("is-screen-sharing", () => {
+  //   // Во время демонстрации экрана скрываем приложение
+  //   return mainWindow
+  //     ?.getContentSource()
+  //     .then((source) => {
+  //       if (source && source.id) {
+  //         mainWindow?.hide();
+  //         return true;
+  //       }
+  //       return false;
+  //     })
+  //     .catch(() => false);
+  // });
   ipcMain.handle("is-screen-sharing", () => {
-    // Во время демонстрации экрана скрываем приложение
-    return mainWindow
-      ?.getContentSource()
-      .then((source) => {
-        if (source && source.id) {
-          mainWindow?.hide();
-          return true;
-        }
+    // During screen sharing we hide the application
+    try {
+      // Check if this method is available (it may not be in some Electron versions)
+      if (mainWindow && typeof mainWindow.getContentSource === "function") {
+        return mainWindow
+          .getContentSource()
+          .then((source) => {
+            if (source && source.id) {
+              mainWindow.hide();
+              return true;
+            }
+            return false;
+          })
+          .catch(() => false);
+      } else {
+        // Fallback for Electron versions that don't support getContentSource
+        console.log("getContentSource method not available, using fallback");
         return false;
-      })
-      .catch(() => false);
+      }
+    } catch (error) {
+      console.error("Error checking screen sharing:", error);
+      return false;
+    }
   });
 
   // Восстановление окна при активации (macOS)

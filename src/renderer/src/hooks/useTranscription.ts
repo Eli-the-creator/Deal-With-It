@@ -74,25 +74,30 @@ export function useTranscription() {
         setTranscriptionIntervalState(null);
       }
 
-      // Сразу делаем первую транскрипцию, но только если еще нет ожидающего запроса
-      if (!pendingTranscriptionRef.current) {
-        pendingTranscriptionRef.current = true;
-        transcribeBuffer(language)
-          .then((result) => {
-            if (result) {
-              console.log("Initial transcription successful:", result.text);
-            } else {
-              console.log("Initial transcription didn't return any result");
-            }
-            pendingTranscriptionRef.current = false;
-          })
-          .catch((err) => {
-            console.error("Error during initial transcription:", err);
-            pendingTranscriptionRef.current = false;
-          });
-      }
+      // Wait a bit before making the first transcription attempt
+      // This gives audio capture time to collect some data
+      setTimeout(() => {
+        // Only try transcription if not already pending
+        if (!pendingTranscriptionRef.current) {
+          pendingTranscriptionRef.current = true;
+          transcribeBuffer(language)
+            .then((result) => {
+              if (result) {
+                console.log("Initial transcription successful:", result.text);
+                setLastTranscription(result); // Make sure to update the state
+              } else {
+                console.log("Initial transcription didn't return any result");
+              }
+              pendingTranscriptionRef.current = false;
+            })
+            .catch((err) => {
+              console.error("Error during initial transcription:", err);
+              pendingTranscriptionRef.current = false;
+            });
+        }
+      }, 2000); // Wait 2 seconds before first transcription
 
-      // Запускаем интервал, но только если нет ожидающего запроса
+      // Запускаем интервал для повторных транскрипций
       const interval = setInterval(() => {
         if (!pendingTranscriptionRef.current) {
           pendingTranscriptionRef.current = true;
@@ -100,6 +105,9 @@ export function useTranscription() {
             .then((result) => {
               if (result) {
                 console.log("Continuous transcription result:", result.text);
+                setLastTranscription(result); // Make sure to update the state
+              } else {
+                console.log("No transcription result returned");
               }
               pendingTranscriptionRef.current = false;
             })

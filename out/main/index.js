@@ -6905,13 +6905,23 @@ electron.app.whenReady().then(() => {
     }
   });
   electron.ipcMain.handle("is-screen-sharing", () => {
-    return mainWindow?.getContentSource().then((source) => {
-      if (source && source.id) {
-        mainWindow?.hide();
-        return true;
+    try {
+      if (mainWindow && typeof mainWindow.getContentSource === "function") {
+        return mainWindow.getContentSource().then((source) => {
+          if (source && source.id) {
+            mainWindow.hide();
+            return true;
+          }
+          return false;
+        }).catch(() => false);
+      } else {
+        console.log("getContentSource method not available, using fallback");
+        return false;
       }
+    } catch (error) {
+      console.error("Error checking screen sharing:", error);
       return false;
-    }).catch(() => false);
+    }
   });
   electron.app.on("activate", function() {
     if (electron.BrowserWindow.getAllWindows().length === 0)
