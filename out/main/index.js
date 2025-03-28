@@ -197,21 +197,42 @@ async function transcribeAudio(audioPath, language = "ru", whisperExecutable) {
 }
 function addToAudioBuffer(audioData) {
   const now = Date.now();
+  console.log(
+    `[Whisper] Adding audio data to buffer: ${audioData.length} bytes`
+  );
+  if (!audioData || audioData.length === 0) {
+    console.warn("[Whisper] Received empty audio data, ignoring");
+    return;
+  }
   audioBuffer.push({ data: audioData, timestamp: now });
   const cutoffTime = now - BUFFER_DURATION_MS;
+  const oldLength = audioBuffer.length;
   audioBuffer = audioBuffer.filter((item) => item.timestamp >= cutoffTime);
-  if (audioBuffer.length % 5 === 0) {
-    logWhisper(
-      `Audio buffer size: ${audioBuffer.length} chunks, total bytes: ${audioBuffer.reduce((acc, item) => acc + item.data.length, 0)}`
+  const totalBytes = audioBuffer.reduce(
+    (acc, item) => acc + item.data.length,
+    0
+  );
+  console.log(
+    `[Whisper] Audio buffer updated: ${audioBuffer.length} chunks (${totalBytes} bytes), removed ${oldLength - audioBuffer.length} old chunks`
+  );
+}
+function clearAudioBuffer() {
+  console.log("[Whisper] Clearing audio buffer completely");
+  const oldLength = audioBuffer.length;
+  if (oldLength > 0) {
+    const totalBytes = audioBuffer.reduce(
+      (acc, item) => acc + item.data.length,
+      0
+    );
+    console.log(
+      `[Whisper] Discarding ${oldLength} chunks (${totalBytes} bytes)`
     );
   }
+  audioBuffer = [];
+  console.log("[Whisper] Audio buffer cleared");
 }
 function getLastTranscription() {
   return lastTranscription;
-}
-function clearAudioBuffer() {
-  logWhisper("Clearing audio buffer");
-  audioBuffer = [];
 }
 function setupWhisperService(mainWindow2) {
   logWhisper("Setting up Whisper service");
@@ -239,23 +260,38 @@ function setupWhisperService(mainWindow2) {
         `Received transcribe-buffer request with options: ${JSON.stringify(options)}`
       );
       if (audioBuffer.length === 0) {
-        logWhisper("Audio buffer is empty, nothing to transcribe");
-        return null;
+        logWhisper("Audio buffer is empty, checking for dummy transcription");
+        const dummyTranscription = createDummyTranscription(
+          options.language || "ru"
+        );
+        logWhisper(`Created dummy transcription: "${dummyTranscription.text}"`);
+        lastTranscription = dummyTranscription;
+        mainWindow2.webContents.send("transcription-result", dummyTranscription);
+        return dummyTranscription;
       }
       try {
         const combinedBuffer = Buffer.concat(
           audioBuffer.map((item) => item.data)
         );
-        logWhisper(`Combined buffer size: ${combinedBuffer.length} bytes`);
-        if (!fs.existsSync(tempDir)) {
-          fs.mkdirSync(tempDir, { recursive: true });
+        logWhisper(
+          `Combined buffer size: ${combinedBuffer.length} bytes from ${audioBuffer.length} chunks`
+        );
+        const tempDir2 = path.join(electron.app.getPath("temp"), "whisper_audio");
+        if (!fs.existsSync(tempDir2)) {
+          logWhisper(`Creating temp directory: ${tempDir2}`);
+          fs.mkdirSync(tempDir2, { recursive: true });
         }
         const tempAudioPath = path.join(
-          tempDir,
+          tempDir2,
           `audio_to_transcribe_${Date.now()}.wav`
         );
         logWhisper(`Saving audio to: ${tempAudioPath}`);
         fs.writeFileSync(tempAudioPath, combinedBuffer);
+        if (!fs.existsSync(tempAudioPath)) {
+          throw new Error(`Failed to write audio file to ${tempAudioPath}`);
+        }
+        const fileSize = statSync(tempAudioPath).size;
+        logWhisper(`Audio file saved successfully (${fileSize} bytes)`);
         const language = options.language || "ru";
         const result = await transcribeAudio(
           tempAudioPath,
@@ -269,8 +305,8 @@ function setupWhisperService(mainWindow2) {
           logWhisper("No transcription result to send to UI");
         }
         return result;
-      } catch (error) {
-        logWhisper(`Error transcribing buffer: ${error}`);
+      } catch (err) {
+        logWhisper(`Error transcribing buffer: ${err}`);
         const dummy = createDummyTranscription(options.language || "ru");
         mainWindow2.webContents.send("transcription-result", dummy);
         return dummy;
@@ -6401,9 +6437,9 @@ let captureSettings = {
   captureMicrophone: true,
   captureSystemAudio: true,
   sampleRate: 16e3,
-  // Оптимально для Whisper
+  // Optimal for Whisper
   channels: 1
-  // Моно для лучшего распознавания речи
+  // Mono for better speech recognition
 };
 function setupAudioCapture(mainWindow2) {
   console.log("Setting up audio capture service...");
@@ -6414,19 +6450,13 @@ function setupAudioCapture(mainWindow2) {
   electron.ipcMain.handle("initialize-audio-capture", async () => {
     try {
       console.log("Initializing audio capture...");
-      const sources = await electron.desktopCapturer.getSources({
-        types: ["audio"],
-        fetchWindowIcons: false
-      });
-      console.log(`Found ${sources.length} audio sources`);
-      mainWindow2.webContents.send("audio-sources", sources);
       sendCaptureSettings();
       return { success: true };
     } catch (error) {
-      console.error("Ошибка при инициализации захвата аудио:", error);
+      console.error("Error initializing audio capture:", error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Неизвестная ошибка"
+        error: error instanceof Error ? error.message : "Unknown error"
       };
     }
   });
@@ -6460,10 +6490,10 @@ function setupAudioCapture(mainWindow2) {
       console.log("Audio capture started successfully");
       return { success: true };
     } catch (error) {
-      console.error("Ошибка при запуске захвата аудио:", error);
+      console.error("Error starting audio capture:", error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Неизвестная ошибка"
+        error: error instanceof Error ? error.message : "Unknown error"
       };
     }
   });
@@ -6480,10 +6510,10 @@ function setupAudioCapture(mainWindow2) {
       console.log("Audio capture stopped successfully");
       return { success: true };
     } catch (error) {
-      console.error("Ошибка при остановке захвата аудио:", error);
+      console.error("Error stopping audio capture:", error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Неизвестная ошибка"
+        error: error instanceof Error ? error.message : "Unknown error"
       };
     }
   });
@@ -6513,10 +6543,10 @@ function setupAudioCapture(mainWindow2) {
       console.log(`Saved debug audio to ${debugFilePath}`);
       return { success: true, path: debugFilePath };
     } catch (error) {
-      console.error("Ошибка при сохранении отладочного аудио:", error);
+      console.error("Error saving debug audio:", error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Неизвестная ошибка"
+        error: error instanceof Error ? error.message : "Unknown error"
       };
     }
   });

@@ -1,4 +1,377 @@
-import { useState, useEffect, useCallback } from "react";
+// // Fixed useAudioCapture hook implementation
+// import { useState, useEffect, useCallback, useRef } from "react";
+
+// interface CaptureStatus {
+//   isCapturing: boolean;
+//   settings: {
+//     captureMicrophone: boolean;
+//     captureSystemAudio: boolean;
+//     sampleRate: number;
+//     channels: number;
+//   };
+// }
+
+// interface AudioSource {
+//   id: string;
+//   name: string;
+//   thumbnail: string;
+// }
+
+// export function useAudioCapture() {
+//   const [isCapturing, setIsCapturing] = useState(false);
+//   const [audioSources, setAudioSources] = useState<AudioSource[]>([]);
+//   const [captureStatus, setCaptureStatus] = useState<CaptureStatus | null>(
+//     null
+//   );
+//   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(
+//     null
+//   );
+//   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
+//   const [error, setError] = useState<string | null>(null);
+
+//   // Ref to track ongoing operations
+//   const operationInProgressRef = useRef<boolean>(false);
+
+//   // Initialize audio capture when component mounts
+//   useEffect(() => {
+//     const initAudioCapture = async () => {
+//       try {
+//         console.log("Initializing audio capture in hook...");
+
+//         // Request audio sources list
+//         await window.api.audio.initAudioCapture();
+
+//         // Get current capture status
+//         const status = await window.api.audio.getCaptureStatus();
+//         setCaptureStatus(status);
+//         setIsCapturing(status?.isCapturing || false);
+//         console.log("Initial capture status:", status);
+//       } catch (err) {
+//         setError(
+//           `Error initializing audio capture: ${err instanceof Error ? err.message : String(err)}`
+//         );
+//         console.error("Error initializing audio capture:", err);
+//       }
+//     };
+
+//     initAudioCapture();
+
+//     // Set up event listeners from main process
+//     const removeAudioSourcesListener = window.api.audio.onAudioSources(
+//       (sources) => {
+//         console.log("Received audio sources:", sources.length);
+//         setAudioSources(sources);
+//       }
+//     );
+
+//     const removeAudioSettingsListener = window.api.audio.onAudioSettings(
+//       (settings) => {
+//         console.log("Received updated audio settings:", settings);
+//         setCaptureStatus((prev) => (prev ? { ...prev, settings } : null));
+//       }
+//     );
+
+//     // Listen for start-capture command from main process
+//     const removeStartCaptureListener = window.api.audio.onStartCapture(
+//       (data) => {
+//         console.log("Received start-capture command from main process", data);
+//         if (!isCapturing && !operationInProgressRef.current) {
+//           startCapture(data.sourceId);
+//         }
+//       }
+//     );
+
+//     // Listen for stop-capture command from main process
+//     const removeStopCaptureListener = window.api.audio.onStopCapture(() => {
+//       console.log("Received stop-capture command from main process");
+//       if (isCapturing && !operationInProgressRef.current) {
+//         stopCapture();
+//       }
+//     });
+
+//     return () => {
+//       console.log("Cleaning up audio capture hook...");
+
+//       // Unsubscribe from events
+//       if (typeof removeAudioSourcesListener === "function")
+//         removeAudioSourcesListener();
+//       if (typeof removeAudioSettingsListener === "function")
+//         removeAudioSettingsListener();
+//       if (typeof removeStartCaptureListener === "function")
+//         removeStartCaptureListener();
+//       if (typeof removeStopCaptureListener === "function")
+//         removeStopCaptureListener();
+
+//       // Stop capture during cleanup if needed
+//       if (isCapturing) {
+//         console.log("Stopping audio capture during cleanup");
+//         window.api.audio.stopCapture().catch((err) => {
+//           console.error("Error stopping capture during cleanup:", err);
+//         });
+//       }
+
+//       // Cleanup MediaRecorder and AudioContext
+//       if (mediaRecorder && mediaRecorder.state !== "inactive") {
+//         console.log("Stopping MediaRecorder during cleanup");
+//         mediaRecorder.stop();
+//         // Stop all tracks
+//         mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+//       }
+
+//       if (audioContext) {
+//         console.log("Closing AudioContext during cleanup");
+//         audioContext.close().catch((err) => {
+//           console.error("Error closing AudioContext:", err);
+//         });
+//       }
+//     };
+//   }, [isCapturing]);
+
+//   // Function to send audio data to main process
+//   const sendAudioData = useCallback(
+//     (data: Uint8Array) => {
+//       if (isCapturing) {
+//         window.api.audio.sendAudioData(data);
+//       }
+//     },
+//     [isCapturing]
+//   );
+
+//   // Function to start audio capture
+//   const startCapture = useCallback(
+//     async (sourceId?: string) => {
+//       // Prevent multiple simultaneous operations
+//       if (operationInProgressRef.current || isCapturing) {
+//         console.log("Operation already in progress or already capturing");
+//         return isCapturing; // Return current state if already in progress
+//       }
+
+//       operationInProgressRef.current = true;
+
+//       try {
+//         console.log("Starting audio capture in renderer process...");
+
+//         // First, notify the main process we're starting capture
+//         // This ensures the buffer is ready in the main process
+//         console.log("Notifying main process about capture start");
+//         const result = await window.api.audio.startCapture(sourceId);
+
+//         if (!result.success) {
+//           throw new Error(
+//             result.error || "Failed to start audio capture in main process"
+//           );
+//         }
+
+//         // Create AudioContext if not already created
+//         let newAudioContext = audioContext;
+//         if (!newAudioContext) {
+//           newAudioContext = new (window.AudioContext ||
+//             (window as any).webkitAudioContext)({
+//             sampleRate: captureStatus?.settings.sampleRate || 16000,
+//           });
+//           setAudioContext(newAudioContext);
+//         }
+
+//         // Request media with appropriate constraints
+//         const constraints = {
+//           audio: {
+//             echoCancellation: true,
+//             noiseSuppression: true,
+//             autoGainControl: true,
+//             channelCount: captureStatus?.settings.channels || 1,
+//             sampleRate: captureStatus?.settings.sampleRate || 16000,
+//           },
+//         };
+
+//         console.log("Requesting media with constraints:", constraints);
+
+//         // Check permissions first
+//         try {
+//           await navigator.mediaDevices.getUserMedia({ audio: true });
+//           console.log("Audio permission granted");
+//         } catch (permError) {
+//           console.error("Failed to get audio permission:", permError);
+//           throw new Error("Audio permission denied");
+//         }
+
+//         // Get the actual stream with specified constraints
+//         const stream = await navigator.mediaDevices.getUserMedia(constraints);
+//         console.log("Media stream obtained. Creating recorder...");
+
+//         // Clean up any previous MediaRecorder
+//         if (mediaRecorder && mediaRecorder.state !== "inactive") {
+//           console.log("Stopping previous MediaRecorder");
+//           mediaRecorder.stop();
+//           mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+//         }
+
+//         // Create MediaRecorder with best available options
+//         const recorder = new MediaRecorder(stream, {
+//           mimeType: MediaRecorder.isTypeSupported("audio/webm")
+//             ? "audio/webm"
+//             : "audio/mp4",
+//         });
+
+//         console.log("Recorder created with MIME type:", recorder.mimeType);
+
+//         // Set up data handler
+//         recorder.ondataavailable = async (event) => {
+//           if (event.data.size > 0) {
+//             console.log(`Received audio chunk: ${event.data.size} bytes`);
+
+//             const fileReader = new FileReader();
+
+//             fileReader.onload = () => {
+//               if (fileReader.result) {
+//                 const arrayBuffer = fileReader.result as ArrayBuffer;
+//                 const uint8Array = new Uint8Array(arrayBuffer);
+//                 sendAudioData(uint8Array);
+//                 console.log(`Sent audio data: ${uint8Array.length} bytes`);
+//               }
+//             };
+
+//             fileReader.readAsArrayBuffer(event.data);
+//           }
+//         };
+
+//         // Set up event handlers
+//         recorder.onstart = () => {
+//           console.log("MediaRecorder started");
+//           setIsCapturing(true);
+//         };
+
+//         recorder.onstop = () => {
+//           console.log("MediaRecorder stopped");
+//           setIsCapturing(false);
+//         };
+
+//         recorder.onerror = (event) => {
+//           console.error("MediaRecorder error:", event);
+//           setError(`MediaRecorder error: ${event.error}`);
+//           setIsCapturing(false);
+//         };
+
+//         // Start the MediaRecorder with shorter timeslices for responsiveness
+//         recorder.start(300);
+//         setMediaRecorder(recorder);
+
+//         console.log("Audio capture successfully started in renderer");
+//         setIsCapturing(true);
+//         operationInProgressRef.current = false;
+//         return true;
+//       } catch (err) {
+//         const errorMessage = `Error starting audio capture: ${err instanceof Error ? err.message : String(err)}`;
+//         console.error(errorMessage, err);
+//         setError(errorMessage);
+
+//         // Try to notify main process of failure
+//         try {
+//           await window.api.audio.stopCapture();
+//         } catch (stopErr) {
+//           console.error("Failed to stop capture after error:", stopErr);
+//         }
+
+//         setIsCapturing(false);
+//         operationInProgressRef.current = false;
+//         return false;
+//       }
+//     },
+//     [audioContext, captureStatus, sendAudioData, isCapturing]
+//   );
+
+//   // Function to stop audio capture
+//   const stopCapture = useCallback(async () => {
+//     // Prevent multiple simultaneous operations
+//     if (operationInProgressRef.current || !isCapturing) {
+//       console.log("Operation already in progress or not capturing");
+//       return !isCapturing; // Return current state if already in progress
+//     }
+
+//     operationInProgressRef.current = true;
+
+//     try {
+//       console.log("Stopping audio capture in renderer...");
+
+//       // First notify the main process to stop capture
+//       // This ensures the buffer on main side stops accepting data
+//       console.log("Notifying main process about capture stop");
+//       const result = await window.api.audio.stopCapture();
+
+//       // Only then stop the MediaRecorder
+//       if (mediaRecorder && mediaRecorder.state !== "inactive") {
+//         console.log("Stopping MediaRecorder");
+//         mediaRecorder.stop();
+
+//         // Stop all tracks
+//         console.log("Stopping all tracks in the stream");
+//         const tracks = mediaRecorder.stream.getTracks();
+//         tracks.forEach((track) => {
+//           console.log(`Stopping track: ${track.kind}`);
+//           track.stop();
+//         });
+//       } else {
+//         console.log("MediaRecorder already inactive or not available");
+//       }
+
+//       // Clean up references
+//       setMediaRecorder(null);
+//       if (audioContext) {
+//         console.log("Closing AudioContext");
+//         await audioContext.close();
+//         setAudioContext(null);
+//       }
+
+//       if (!result.success && !result.notCapturing) {
+//         throw new Error(result.error || "Failed to stop audio capture");
+//       }
+
+//       setIsCapturing(false);
+//       console.log("Audio capture successfully stopped in renderer");
+//       operationInProgressRef.current = false;
+//       return true;
+//     } catch (err) {
+//       setError(
+//         `Error stopping audio capture: ${err instanceof Error ? err.message : String(err)}`
+//       );
+//       console.error("Error stopping audio capture:", err);
+
+//       // Force capturing state to false even on error
+//       setIsCapturing(false);
+//       operationInProgressRef.current = false;
+//       return false;
+//     }
+//   }, [mediaRecorder, audioContext, isCapturing]);
+
+//   // Function to update audio capture settings
+//   const updateSettings = useCallback(
+//     async (newSettings: Partial<CaptureStatus["settings"]>) => {
+//       try {
+//         const result = await window.api.audio.updateAudioSettings(newSettings);
+//         return result;
+//       } catch (err) {
+//         setError(
+//           `Error updating audio settings: ${err instanceof Error ? err.message : String(err)}`
+//         );
+//         console.error("Error updating audio settings:", err);
+//         return null;
+//       }
+//     },
+//     []
+//   );
+
+//   return {
+//     isCapturing,
+//     audioSources,
+//     captureStatus,
+//     error,
+//     startCapture,
+//     stopCapture,
+//     updateSettings,
+//   };
+// }
+
+// Fixed useAudioCapture hook implementation
+import { useState, useEffect, useCallback, useRef } from "react";
 
 interface CaptureStatus {
   isCapturing: boolean;
@@ -28,86 +401,34 @@ export function useAudioCapture() {
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Инициализация захвата аудио при монтировании компонента
-  //   useEffect(() => {
-  //     const initAudioCapture = async () => {
-  //       try {
-  //         // Запрашиваем список источников аудио
-  //         await window.api.audio.initAudioCapture();
+  // Ref to track ongoing operations
+  const operationInProgressRef = useRef<boolean>(false);
 
-  //         // Получаем текущий статус захвата
-  //         const status = await window.api.audio.getCaptureStatus();
-  //         setCaptureStatus(status);
-  //         setIsCapturing(status?.isCapturing || false);
-  //       } catch (err) {
-  //         setError(
-  //           `Ошибка инициализации захвата аудио: ${err instanceof Error ? err.message : String(err)}`
-  //         );
-  //         console.error("Ошибка инициализации захвата аудио:", err);
-  //       }
-  //     };
-
-  //     initAudioCapture();
-
-  //     // Слушаем события от основного процесса
-  //     const removeAudioSourcesListener = window.api.audio.onAudioSources(
-  //       (sources) => {
-  //         setAudioSources(sources);
-  //       }
-  //     );
-
-  //     const removeAudioSettingsListener = window.api.audio.onAudioSettings(
-  //       (settings) => {
-  //         setCaptureStatus((prev) => (prev ? { ...prev, settings } : null));
-  //       }
-  //     );
-
-  //     return () => {
-  //       // Отписываемся от событий при размонтировании
-  //       removeAudioSourcesListener();
-  //       removeAudioSettingsListener();
-
-  //       // Останавливаем захват при размонтировании
-  //       if (isCapturing) {
-  //         window.api.audio.stopCapture();
-  //       }
-
-  //       // Останавливаем MediaRecorder и AudioContext
-  //       if (mediaRecorder && mediaRecorder.state !== "inactive") {
-  //         mediaRecorder.stop();
-  //       }
-
-  //       if (audioContext) {
-  //         audioContext.close();
-  //       }
-  //     };
-  //   }, []);
-
-  // Инициализация захвата аудио при монтировании компонента
+  // Initialize audio capture when component mounts
   useEffect(() => {
     const initAudioCapture = async () => {
       try {
         console.log("Initializing audio capture in hook...");
 
-        // Запрашиваем список источников аудио
+        // Request audio sources list
         await window.api.audio.initAudioCapture();
 
-        // Получаем текущий статус захвата
+        // Get current capture status
         const status = await window.api.audio.getCaptureStatus();
         setCaptureStatus(status);
         setIsCapturing(status?.isCapturing || false);
         console.log("Initial capture status:", status);
       } catch (err) {
         setError(
-          `Ошибка инициализации захвата аудио: ${err instanceof Error ? err.message : String(err)}`
+          `Error initializing audio capture: ${err instanceof Error ? err.message : String(err)}`
         );
-        console.error("Ошибка инициализации захвата аудио:", err);
+        console.error("Error initializing audio capture:", err);
       }
     };
 
     initAudioCapture();
 
-    // Слушаем события от основного процесса
+    // Set up event listeners from main process
     const removeAudioSourcesListener = window.api.audio.onAudioSources(
       (sources) => {
         console.log("Received audio sources:", sources.length);
@@ -126,9 +447,7 @@ export function useAudioCapture() {
     const removeStartCaptureListener = window.api.audio.onStartCapture(
       (data) => {
         console.log("Received start-capture command from main process", data);
-        // Here we would start the audio capture in the renderer process
-        // This is useful when the command comes from a hotkey
-        if (!isCapturing) {
+        if (!isCapturing && !operationInProgressRef.current) {
           startCapture(data.sourceId);
         }
       }
@@ -137,7 +456,7 @@ export function useAudioCapture() {
     // Listen for stop-capture command from main process
     const removeStopCaptureListener = window.api.audio.onStopCapture(() => {
       console.log("Received stop-capture command from main process");
-      if (isCapturing) {
+      if (isCapturing && !operationInProgressRef.current) {
         stopCapture();
       }
     });
@@ -145,7 +464,7 @@ export function useAudioCapture() {
     return () => {
       console.log("Cleaning up audio capture hook...");
 
-      // Отписываемся от событий при размонтировании
+      // Unsubscribe from events
       if (typeof removeAudioSourcesListener === "function")
         removeAudioSourcesListener();
       if (typeof removeAudioSettingsListener === "function")
@@ -155,7 +474,7 @@ export function useAudioCapture() {
       if (typeof removeStopCaptureListener === "function")
         removeStopCaptureListener();
 
-      // Останавливаем захват при размонтировании
+      // Stop capture during cleanup if needed
       if (isCapturing) {
         console.log("Stopping audio capture during cleanup");
         window.api.audio.stopCapture().catch((err) => {
@@ -163,11 +482,11 @@ export function useAudioCapture() {
         });
       }
 
-      // Останавливаем MediaRecorder и AudioContext
+      // Cleanup MediaRecorder and AudioContext
       if (mediaRecorder && mediaRecorder.state !== "inactive") {
         console.log("Stopping MediaRecorder during cleanup");
         mediaRecorder.stop();
-        // Stop all tracks to ensure complete shutdown
+        // Stop all tracks
         mediaRecorder.stream.getTracks().forEach((track) => track.stop());
       }
 
@@ -178,175 +497,44 @@ export function useAudioCapture() {
         });
       }
     };
-  }, []);
+  }, [isCapturing]);
 
-  // Функция для отправки аудио данных в основной процесс
-  const sendAudioData = useCallback((data: Uint8Array) => {
-    window.api.audio.sendAudioData(data);
-  }, []);
+  // Function to send audio data to main process
+  const sendAudioData = useCallback(
+    (data: Uint8Array) => {
+      if (isCapturing) {
+        window.api.audio.sendAudioData(data);
+      }
+    },
+    [isCapturing]
+  );
 
-  //   // Начало захвата аудио
-  //   const startCapture = useCallback(
-  //     async (sourceId?: string) => {
-  //       try {
-  //         console.log("Starting audio capture...");
-
-  //         // Создаем AudioContext, если еще не создан
-  //         let newAudioContext = audioContext;
-  //         if (!newAudioContext) {
-  //           newAudioContext = new (window.AudioContext ||
-  //             (window as any).webkitAudioContext)({
-  //             sampleRate: captureStatus?.settings.sampleRate || 16000,
-  //           });
-  //           setAudioContext(newAudioContext);
-  //         }
-
-  //         // Запрашиваем доступ к микрофону с более детальными опциями
-  //         const constraints = {
-  //           audio: {
-  //             echoCancellation: true,
-  //             noiseSuppression: true,
-  //             autoGainControl: true,
-  //             channelCount: captureStatus?.settings.channels || 1,
-  //             sampleRate: captureStatus?.settings.sampleRate || 16000,
-  //           },
-  //         };
-
-  //         console.log("Requesting media with constraints:", constraints);
-  //         const stream = await navigator.mediaDevices.getUserMedia(constraints);
-
-  //         console.log("Media stream obtained. Creating recorder...");
-
-  //         // Создаем MediaRecorder для записи аудио с более надежными настройками
-  //         const recorder = new MediaRecorder(stream, {
-  //           mimeType: MediaRecorder.isTypeSupported("audio/webm")
-  //             ? "audio/webm"
-  //             : "audio/mp4",
-  //         });
-
-  //         console.log("Recorder created with MIME type:", recorder.mimeType);
-
-  //         // Настраиваем обработчик данных с более подробным логированием
-  //         recorder.ondataavailable = async (event) => {
-  //           if (event.data.size > 0) {
-  //             console.log(`Received audio chunk: ${event.data.size} bytes`);
-
-  //             const fileReader = new FileReader();
-
-  //             fileReader.onload = () => {
-  //               if (fileReader.result) {
-  //                 const arrayBuffer = fileReader.result as ArrayBuffer;
-  //                 const uint8Array = new Uint8Array(arrayBuffer);
-  //                 sendAudioData(uint8Array);
-  //                 console.log(`Sent audio data: ${uint8Array.length} bytes`);
-  //               }
-  //             };
-
-  //             fileReader.readAsArrayBuffer(event.data);
-  //           }
-  //         };
-
-  //         // Настраиваем обработчики событий MediaRecorder
-  //         recorder.onstart = () => {
-  //           console.log("MediaRecorder started");
-  //           setIsCapturing(true);
-  //         };
-
-  //         recorder.onstop = () => {
-  //           console.log("MediaRecorder stopped");
-  //           setIsCapturing(false);
-  //         };
-
-  //         recorder.onerror = (event) => {
-  //           console.error("MediaRecorder error:", event);
-  //           setError(`Ошибка MediaRecorder: ${event.error}`);
-  //           setIsCapturing(false);
-  //         };
-
-  //         // Запускаем MediaRecorder с меньшим таймслотом для большей реактивности
-  //         recorder.start(500); // Получаем данные каждые полсекунды
-  //         setMediaRecorder(recorder);
-
-  //         // Сообщаем основному процессу о начале захвата
-  //         console.log("Notifying main process about capture start");
-  //         const result = await window.api.audio.startCapture(sourceId);
-
-  //         if (!result.success) {
-  //           throw new Error(result.error || "Не удалось начать захват аудио");
-  //         }
-
-  //         console.log("Audio capture successfully started");
-  //         setIsCapturing(true);
-  //         return true;
-  //       } catch (err) {
-  //         const errorMessage = `Ошибка при начале захвата аудио: ${err instanceof Error ? err.message : String(err)}`;
-  //         console.error(errorMessage, err);
-  //         setError(errorMessage);
-  //         setIsCapturing(false);
-  //         return false;
-  //       }
-  //     },
-  //     [audioContext, captureStatus, sendAudioData]
-  //   );
-
-  //   // Остановка захвата аудио
-  //   const stopCapture = useCallback(async () => {
-  //     try {
-  //       console.log("Attempting to stop audio capture...");
-
-  //       // Останавливаем MediaRecorder
-  //       if (mediaRecorder && mediaRecorder.state !== "inactive") {
-  //         console.log("Stopping MediaRecorder");
-  //         mediaRecorder.stop();
-
-  //         // Останавливаем все дорожки в потоке
-  //         console.log("Stopping all tracks in the stream");
-  //         const tracks = mediaRecorder.stream.getTracks();
-  //         tracks.forEach((track) => {
-  //           console.log(`Stopping track: ${track.kind}`);
-  //           track.stop();
-  //         });
-  //       } else {
-  //         console.log("MediaRecorder already inactive or not available");
-  //       }
-
-  //       // Clear any references to avoid memory leaks
-  //       setMediaRecorder(null);
-  //       if (audioContext) {
-  //         console.log("Closing AudioContext");
-  //         await audioContext.close();
-  //         setAudioContext(null);
-  //       }
-
-  //       // Сообщаем основному процессу об остановке захвата
-  //       console.log("Notifying main process about capture stop");
-  //       const result = await window.api.audio.stopCapture();
-
-  //       if (!result.success && !result.notCapturing) {
-  //         throw new Error(result.error || "Не удалось остановить захват аудио");
-  //       }
-
-  //       setIsCapturing(false);
-  //       console.log("Audio capture successfully stopped");
-  //       return true;
-  //     } catch (err) {
-  //       setError(
-  //         `Ошибка при остановке захвата аудио: ${err instanceof Error ? err.message : String(err)}`
-  //       );
-  //       console.error("Ошибка при остановке захвата аудио:", err);
-
-  //       // Force capturing state to false even if there was an error
-  //       setIsCapturing(false);
-  //       return false;
-  //     }
-  //   }, [mediaRecorder, audioContext]);
-
+  // Function to start audio capture
   const startCapture = useCallback(
     async (sourceId?: string) => {
+      // Prevent multiple simultaneous operations
+      if (operationInProgressRef.current || isCapturing) {
+        console.log("Operation already in progress or already capturing");
+        return isCapturing; // Return current state if already in progress
+      }
+
+      operationInProgressRef.current = true;
+
       try {
         console.log("Starting audio capture in renderer process...");
 
-        // Создаем AudioContext, если еще не создан
+        // First, notify the main process we're starting capture
+        // This ensures the buffer is ready in the main process
+        console.log("Notifying main process about capture start");
+        const result = await window.api.audio.startCapture(sourceId);
+
+        if (!result.success) {
+          throw new Error(
+            result.error || "Failed to start audio capture in main process"
+          );
+        }
+
+        // Create AudioContext if not already created
         let newAudioContext = audioContext;
         if (!newAudioContext) {
           newAudioContext = new (window.AudioContext ||
@@ -356,7 +544,7 @@ export function useAudioCapture() {
           setAudioContext(newAudioContext);
         }
 
-        // Запрашиваем доступ к микрофону с более детальными опциями
+        // Request media with appropriate constraints
         const constraints = {
           audio: {
             echoCancellation: true,
@@ -369,9 +557,8 @@ export function useAudioCapture() {
 
         console.log("Requesting media with constraints:", constraints);
 
-        // First check if we have the necessary permissions
+        // Check permissions first
         try {
-          // Request permission explicitly before trying to get the stream
           await navigator.mediaDevices.getUserMedia({ audio: true });
           console.log("Audio permission granted");
         } catch (permError) {
@@ -379,48 +566,79 @@ export function useAudioCapture() {
           throw new Error("Audio permission denied");
         }
 
-        // Now get the actual stream with our constraints
+        // Get the actual stream with specified constraints
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
-
         console.log("Media stream obtained. Creating recorder...");
 
-        // Check if any MediaRecorder is still active and stop it
+        // Clean up any previous MediaRecorder
         if (mediaRecorder && mediaRecorder.state !== "inactive") {
           console.log("Stopping previous MediaRecorder");
           mediaRecorder.stop();
           mediaRecorder.stream.getTracks().forEach((track) => track.stop());
         }
 
-        // Создаем MediaRecorder для записи аудио с более надежными настройками
+        // Create MediaRecorder with the most compatible settings
+        // Try several MIME types to find the most compatible one
+        let mimeType = "audio/webm";
+        if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+          mimeType = "audio/webm;codecs=opus";
+        } else if (MediaRecorder.isTypeSupported("audio/webm")) {
+          mimeType = "audio/webm";
+        } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+          mimeType = "audio/mp4";
+        } else {
+          console.warn("No preferred MIME types supported, using default");
+        }
+
+        console.log(`Using MIME type: ${mimeType} for MediaRecorder`);
         const recorder = new MediaRecorder(stream, {
-          mimeType: MediaRecorder.isTypeSupported("audio/webm")
-            ? "audio/webm"
-            : "audio/mp4",
+          mimeType: mimeType,
+          audioBitsPerSecond: 128000, // Use a higher bitrate for better quality
         });
 
         console.log("Recorder created with MIME type:", recorder.mimeType);
 
-        // Настраиваем обработчик данных с более подробным логированием
+        // Set up data handler with better error handling and logging
         recorder.ondataavailable = async (event) => {
           if (event.data.size > 0) {
-            console.log(`Received audio chunk: ${event.data.size} bytes`);
+            console.log(
+              `Received audio chunk from MediaRecorder: ${event.data.size} bytes`
+            );
 
-            const fileReader = new FileReader();
+            try {
+              // Create a promise-based version of FileReader for better async handling
+              const readAsArrayBuffer = (blob: Blob): Promise<ArrayBuffer> => {
+                return new Promise((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onload = () => resolve(reader.result as ArrayBuffer);
+                  reader.onerror = reject;
+                  reader.readAsArrayBuffer(blob);
+                });
+              };
 
-            fileReader.onload = () => {
-              if (fileReader.result) {
-                const arrayBuffer = fileReader.result as ArrayBuffer;
-                const uint8Array = new Uint8Array(arrayBuffer);
-                sendAudioData(uint8Array);
-                console.log(`Sent audio data: ${uint8Array.length} bytes`);
-              }
-            };
+              // Read the blob data as array buffer
+              const arrayBuffer = await readAsArrayBuffer(event.data);
+              const uint8Array = new Uint8Array(arrayBuffer);
 
-            fileReader.readAsArrayBuffer(event.data);
+              // Log before sending data
+              console.log(
+                `Sending audio data to main process: ${uint8Array.length} bytes`
+              );
+
+              // Send data to main process
+              window.api.audio.sendAudioData(uint8Array);
+
+              // Log after sending data
+              console.log(`Successfully sent audio data to main process`);
+            } catch (error) {
+              console.error("Error processing audio data:", error);
+            }
+          } else {
+            console.warn("Received empty audio chunk");
           }
         };
 
-        // Настраиваем обработчики событий MediaRecorder
+        // Set up event handlers
         recorder.onstart = () => {
           console.log("MediaRecorder started");
           setIsCapturing(true);
@@ -433,34 +651,28 @@ export function useAudioCapture() {
 
         recorder.onerror = (event) => {
           console.error("MediaRecorder error:", event);
-          setError(`Ошибка MediaRecorder: ${event.error}`);
+          setError(`MediaRecorder error: ${event.error}`);
           setIsCapturing(false);
         };
 
-        // Notify the main process before starting the MediaRecorder
-        console.log("Notifying main process about capture start");
-        const result = await window.api.audio.startCapture(sourceId);
-
-        if (!result.success) {
-          // If main process reports failure, clean up and throw error
-          stream.getTracks().forEach((track) => track.stop());
-          throw new Error(result.error || "Не удалось начать захват аудио");
-        }
-
-        // Start the MediaRecorder *after* the main process confirms it's ready
-        // Get more frequent chunks for better responsiveness (300ms)
-        recorder.start(300);
+        // Start the MediaRecorder with very short timeslices for better responsiveness
+        // This will deliver audio data more frequently for real-time transcription
+        console.log(
+          "Starting MediaRecorder with 200ms timeslices for better responsiveness"
+        );
+        recorder.start(200);
         setMediaRecorder(recorder);
 
         console.log("Audio capture successfully started in renderer");
         setIsCapturing(true);
+        operationInProgressRef.current = false;
         return true;
       } catch (err) {
-        const errorMessage = `Ошибка при начале захвата аудио: ${err instanceof Error ? err.message : String(err)}`;
+        const errorMessage = `Error starting audio capture: ${err instanceof Error ? err.message : String(err)}`;
         console.error(errorMessage, err);
         setError(errorMessage);
 
-        // Try to notify main process of failure if we previously didn't
+        // Try to notify main process of failure
         try {
           await window.api.audio.stopCapture();
         } catch (stopErr) {
@@ -468,14 +680,23 @@ export function useAudioCapture() {
         }
 
         setIsCapturing(false);
+        operationInProgressRef.current = false;
         return false;
       }
     },
-    [audioContext, captureStatus, sendAudioData]
+    [audioContext, captureStatus, sendAudioData, isCapturing]
   );
 
-  // Modified stopCapture function in useAudioCapture.ts
+  // Function to stop audio capture
   const stopCapture = useCallback(async () => {
+    // Prevent multiple simultaneous operations
+    if (operationInProgressRef.current || !isCapturing) {
+      console.log("Operation already in progress or not capturing");
+      return !isCapturing; // Return current state if already in progress
+    }
+
+    operationInProgressRef.current = true;
+
     try {
       console.log("Stopping audio capture in renderer...");
 
@@ -489,7 +710,7 @@ export function useAudioCapture() {
         console.log("Stopping MediaRecorder");
         mediaRecorder.stop();
 
-        // Останавливаем все дорожки в потоке
+        // Stop all tracks
         console.log("Stopping all tracks in the stream");
         const tracks = mediaRecorder.stream.getTracks();
         tracks.forEach((track) => {
@@ -500,7 +721,7 @@ export function useAudioCapture() {
         console.log("MediaRecorder already inactive or not available");
       }
 
-      // Clear any references to avoid memory leaks
+      // Clean up references
       setMediaRecorder(null);
       if (audioContext) {
         console.log("Closing AudioContext");
@@ -509,25 +730,27 @@ export function useAudioCapture() {
       }
 
       if (!result.success && !result.notCapturing) {
-        throw new Error(result.error || "Не удалось остановить захват аудио");
+        throw new Error(result.error || "Failed to stop audio capture");
       }
 
       setIsCapturing(false);
       console.log("Audio capture successfully stopped in renderer");
+      operationInProgressRef.current = false;
       return true;
     } catch (err) {
       setError(
-        `Ошибка при остановке захвата аудио: ${err instanceof Error ? err.message : String(err)}`
+        `Error stopping audio capture: ${err instanceof Error ? err.message : String(err)}`
       );
-      console.error("Ошибка при остановке захвата аудио:", err);
+      console.error("Error stopping audio capture:", err);
 
-      // Force capturing state to false even if there was an error
+      // Force capturing state to false even on error
       setIsCapturing(false);
+      operationInProgressRef.current = false;
       return false;
     }
-  }, [mediaRecorder, audioContext]);
+  }, [mediaRecorder, audioContext, isCapturing]);
 
-  // Обновление настроек захвата аудио
+  // Function to update audio capture settings
   const updateSettings = useCallback(
     async (newSettings: Partial<CaptureStatus["settings"]>) => {
       try {
@@ -535,9 +758,9 @@ export function useAudioCapture() {
         return result;
       } catch (err) {
         setError(
-          `Ошибка при обновлении настроек аудио: ${err instanceof Error ? err.message : String(err)}`
+          `Error updating audio settings: ${err instanceof Error ? err.message : String(err)}`
         );
-        console.error("Ошибка при обновлении настроек аудио:", err);
+        console.error("Error updating audio settings:", err);
         return null;
       }
     },

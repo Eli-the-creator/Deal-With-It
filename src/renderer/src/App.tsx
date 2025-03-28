@@ -120,11 +120,10 @@ const App: React.FC = () => {
   // Flag to track if continuous transcription is active
   const [isTranscribing, setIsTranscribing] = useState(false);
 
-  // Toggle audio capture and transcription with CMD+I
   // const toggleCaptureAndTranscription = useCallback(() => {
   //   debugLog(
   //     "App",
-  //     `Toggle capture hotkey triggered, current state: ${isCapturing}, transcribing: ${isTranscribing}`
+  //     `Toggle capture hotkey triggered, current state: isCapturing=${isCapturing}, isTranscribing=${isTranscribing}`
   //   );
 
   //   // Add a guard to prevent multiple simultaneous calls
@@ -135,118 +134,150 @@ const App: React.FC = () => {
 
   //   isTogglingRef.current = true;
 
-  //   if (!isCapturing && !isTranscribing) {
-  //     // Start capturing and transcribing
-  //     startCapture()
-  //       .then((success) => {
-  //         if (success) {
-  //           debugLog("App", "Started capturing audio");
-  //           setIsTranscribing(true);
+  //   try {
+  //     // STATE 1: Currently not capturing or transcribing - we need to start
+  //     if (!isCapturing && !isTranscribing) {
+  //       debugLog("App", "Starting audio capture and transcription");
 
-  //           // Set active panel to transcription to show the user what's being captured
-  //           setActivePanel("transcription");
+  //       // Start capturing audio
+  //       startCapture()
+  //         .then((success) => {
+  //           if (success) {
+  //             debugLog("App", "Audio capture started successfully");
 
-  //           // Wait a brief moment for audio capture to start before transcription
-  //           setTimeout(() => {
-  //             // Start continuous transcription
-  //             startContinuousTranscription(2000, "ru");
-  //             isTogglingRef.current = false;
-  //           }, 500);
-  //         } else {
-  //           isTogglingRef.current = false;
-  //         }
-  //       })
-  //       .catch(() => {
-  //         isTogglingRef.current = false;
-  //       });
-  //   } else if (isCapturing && isTranscribing) {
-  //     // First stop continuous transcription
-  //     debugLog("App", "Stopping continuous transcription");
-  //     stopContinuousTranscription();
+  //             // Set active panel to transcription
+  //             setActivePanel("transcription");
 
-  //     // Save the current transcription before stopping
-  //     const currentTranscription = lastTranscription;
+  //             // Set transcribing state BEFORE starting continuous transcription
+  //             setIsTranscribing(true);
 
-  //     // Final transcription
-  //     transcribeBuffer("ru")
-  //       .then((finalResult) => {
-  //         debugLog(
-  //           "App",
-  //           "Final transcription before stopping:",
-  //           finalResult?.text
-  //         );
-
-  //         // Then stop capturing
-  //         stopCapture()
-  //           .then((success) => {
-  //             if (success) {
-  //               debugLog("App", "Stopped capturing audio");
-
-  //               // Add the last transcription to the queue - use finalResult if available
-  //               const transcriptionToAdd = finalResult || currentTranscription;
-
-  //               if (
-  //                 transcriptionToAdd &&
-  //                 transcriptionToAdd.text?.trim() !== ""
-  //               ) {
-  //                 debugLog(
-  //                   "App",
-  //                   "Adding transcription to queue:",
-  //                   transcriptionToAdd.text
-  //                 );
-
-  //                 // Keep the transcription visible until we add it to the queue
-  //                 if (finalResult) {
-  //                   setLastTranscription(finalResult);
-  //                 }
-
-  //                 addLastTranscriptionToQueue()
-  //                   .then(() => {
-  //                     // Now we can set isTranscribing to false and switch panels
-  //                     setIsTranscribing(false);
-  //                     setActivePanel("queue");
-  //                     debugLog("App", "Added transcription to queue");
-  //                     isTogglingRef.current = false;
-  //                   })
-  //                   .catch(() => {
-  //                     setIsTranscribing(false);
-  //                     isTogglingRef.current = false;
-  //                   });
-  //               } else {
-  //                 setIsTranscribing(false);
-  //                 debugLog(
-  //                   "App",
-  //                   "No transcription to add or empty transcription"
-  //                 );
-  //                 isTogglingRef.current = false;
-  //               }
-  //             } else {
-  //               setIsTranscribing(false);
+  //             // Add a delay to ensure audio capture is fully initialized
+  //             setTimeout(() => {
+  //               // Start continuous transcription
+  //               startContinuousTranscription(2000, "ru");
+  //               debugLog("App", "Continuous transcription started");
   //               isTogglingRef.current = false;
-  //             }
+  //             }, 1000); // Increased delay for better stability
+  //           } else {
+  //             debugLog("App", "Failed to start audio capture");
+  //             isTogglingRef.current = false;
+  //           }
+  //         })
+  //         .catch((error) => {
+  //           console.error("Error starting capture:", error);
+  //           isTogglingRef.current = false;
+  //         });
+  //     }
+  //     // STATE 2: Currently capturing and transcribing - we need to stop and add to queue
+  //     else if (isCapturing && isTranscribing) {
+  //       debugLog("App", "Stopping audio capture and transcription");
+
+  //       // First stop continuous transcription to prevent further buffer requests
+  //       stopContinuousTranscription();
+  //       debugLog("App", "Continuous transcription stopped");
+
+  //       // Wait a moment for any pending transcription to complete
+  //       setTimeout(() => {
+  //         // Do one final transcription
+  //         transcribeBuffer("ru")
+  //           .then((finalResult) => {
+  //             debugLog(
+  //               "App",
+  //               "Final transcription completed",
+  //               finalResult?.text
+  //             );
+
+  //             // Stop the audio capture
+  //             stopCapture()
+  //               .then((success) => {
+  //                 if (success) {
+  //                   debugLog("App", "Audio capture stopped successfully");
+
+  //                   // Save the transcription result (if any)
+  //                   if (finalResult && finalResult.text?.trim() !== "") {
+  //                     setLastTranscription(finalResult);
+  //                     debugLog(
+  //                       "App",
+  //                       "Setting final transcription",
+  //                       finalResult.text
+  //                     );
+
+  //                     // Add the transcription to the queue
+  //                     addLastTranscriptionToQueue()
+  //                       .then(() => {
+  //                         setIsTranscribing(false);
+  //                         setActivePanel("queue");
+  //                         debugLog("App", "Added transcription to queue");
+  //                         isTogglingRef.current = false;
+  //                       })
+  //                       .catch((error) => {
+  //                         console.error(
+  //                           "Error adding transcription to queue:",
+  //                           error
+  //                         );
+  //                         setIsTranscribing(false);
+  //                         isTogglingRef.current = false;
+  //                       });
+  //                   } else {
+  //                     // No transcription to add
+  //                     setIsTranscribing(false);
+  //                     debugLog("App", "No transcription to add (empty buffer)");
+  //                     isTogglingRef.current = false;
+  //                   }
+  //                 } else {
+  //                   setIsTranscribing(false);
+  //                   debugLog("App", "Failed to stop audio capture");
+  //                   isTogglingRef.current = false;
+  //                 }
+  //               })
+  //               .catch((error) => {
+  //                 console.error("Error stopping capture:", error);
+  //                 setIsTranscribing(false);
+  //                 isTogglingRef.current = false;
+  //               });
   //           })
-  //           .catch(() => {
+  //           .catch((error) => {
+  //             console.error("Error in final transcription:", error);
+  //             // Even if transcription fails, try to stop the capture
+  //             stopCapture().catch((e) =>
+  //               console.error(
+  //                 "Error stopping capture after transcription failure:",
+  //                 e
+  //               )
+  //             );
   //             setIsTranscribing(false);
   //             isTogglingRef.current = false;
   //           });
-  //       })
-  //       .catch(() => {
-  //         stopCapture();
-  //         setIsTranscribing(false);
-  //         isTogglingRef.current = false;
-  //       });
+  //       }, 500);
+  //     }
+  //   } catch (error) {
+  //     console.error(
+  //       "Unexpected error in toggleCaptureAndTranscription:",
+  //       error
+  //     );
+  //     // Make sure we clean up properly
+  //     if (isCapturing) {
+  //       stopCapture().catch((e) =>
+  //         console.error("Error stopping capture during error recovery:", e)
+  //       );
+  //     }
+  //     if (isTranscribing) {
+  //       stopContinuousTranscription();
+  //     }
+  //     setIsTranscribing(false);
+  //     isTogglingRef.current = false;
   //   }
   // }, [
   //   isCapturing,
   //   isTranscribing,
   //   startCapture,
   //   stopCapture,
-  //   lastTranscription,
+  //   transcribeBuffer,
   //   addLastTranscriptionToQueue,
   //   startContinuousTranscription,
   //   stopContinuousTranscription,
-  //   transcribeBuffer,
   //   setLastTranscription,
+  //   setActivePanel,
   // ]);
 
   const toggleCaptureAndTranscription = useCallback(() => {
@@ -264,8 +295,8 @@ const App: React.FC = () => {
     isTogglingRef.current = true;
 
     try {
+      // STATE 1: Currently not capturing or transcribing - we need to start
       if (!isCapturing && !isTranscribing) {
-        // STATE: Starting capture and transcription
         debugLog("App", "Starting audio capture and transcription");
 
         // Start capturing audio
@@ -280,13 +311,18 @@ const App: React.FC = () => {
               // Set transcribing state BEFORE starting continuous transcription
               setIsTranscribing(true);
 
-              // Add a slight delay to ensure audio capture is fully initialized
+              // Add a longer delay to ensure audio capture is fully initialized
+              // This gives the audio system time to start capturing data
+              console.log(
+                "Waiting 2 seconds before starting continuous transcription..."
+              );
               setTimeout(() => {
-                // Start continuous transcription
-                startContinuousTranscription(2000, "ru");
+                // Start continuous transcription with a shorter interval for better responsiveness
+                console.log("Now starting continuous transcription");
+                startContinuousTranscription(1500, "ru"); // Using a shorter 1.5s interval for more frequent updates
                 debugLog("App", "Continuous transcription started");
                 isTogglingRef.current = false;
-              }, 1000); // Increased delay for better stability
+              }, 2000); // Increased delay to 2 seconds for better stability
             } else {
               debugLog("App", "Failed to start audio capture");
               isTogglingRef.current = false;
@@ -296,8 +332,9 @@ const App: React.FC = () => {
             console.error("Error starting capture:", error);
             isTogglingRef.current = false;
           });
-      } else {
-        // STATE: Stopping capture and transcription
+      }
+      // STATE 2: Currently capturing and transcribing - we need to stop and add to queue
+      else if (isCapturing && isTranscribing) {
         debugLog("App", "Stopping audio capture and transcription");
 
         // First stop continuous transcription to prevent further buffer requests

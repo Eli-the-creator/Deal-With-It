@@ -2,7 +2,7 @@
 // import { join } from "path";
 // import { writeFileSync } from "fs";
 // import { app } from "electron";
-// import { addToAudioBuffer } from "./whisper";
+// import { addToAudioBuffer, clearAudioBuffer } from "./whisper";
 
 // // Настройки захвата аудио
 // interface AudioCaptureSettings {
@@ -90,6 +90,9 @@
 //     }
 
 //     try {
+//       // Clear audio buffer at the start
+//       clearAudioBuffer();
+
 //       // Отправляем команду в рендерер для начала захвата аудио через WebRTC
 //       mainWindow.webContents.send("start-capture", {
 //         sourceId,
@@ -145,13 +148,12 @@
 //   });
 
 //   // Обработка аудио данных из рендерера
-//   //   ipcMain.on("audio-data", (_, audioData) => {
-//   //     // Пересылаем данные в whisper сервис
-//   //     mainWindow.webContents.send("process-audio-data", audioData);
-//   //     console.log(`Received and forwarded audio data: ${audioData.length} bytes`);
-//   //   });
-
 //   ipcMain.on("audio-data", (_, audioData) => {
+//     if (!isCapturing) {
+//       console.log("Received audio data but not capturing, ignoring");
+//       return;
+//     }
+
 //     // Пересылаем данные в whisper сервис
 //     mainWindow.webContents.send("process-audio-data", audioData);
 //     console.log(`Received and forwarded audio data: ${audioData.length} bytes`);
@@ -179,69 +181,59 @@
 //   console.log("Audio capture service setup complete");
 // }
 
-import { BrowserWindow, ipcMain, desktopCapturer } from "electron";
+// Fixed audio-capture.ts service in main process
+import { BrowserWindow, ipcMain } from "electron";
 import { join } from "path";
 import { writeFileSync } from "fs";
 import { app } from "electron";
 import { addToAudioBuffer, clearAudioBuffer } from "./whisper";
 
-// Настройки захвата аудио
+// Audio capture settings interface
 interface AudioCaptureSettings {
   captureMicrophone: boolean;
   captureSystemAudio: boolean;
-  sampleRate: number; // Частота дискретизации (обычно 16000 для Whisper)
-  channels: number; // Количество каналов (1 - моно, 2 - стерео)
+  sampleRate: number; // Sample rate (usually 16000 for Whisper)
+  channels: number; // Number of channels (1 - mono, 2 - stereo)
 }
 
-// Состояние захвата аудио
+// Global capture state
 let isCapturing = false;
 let captureSettings: AudioCaptureSettings = {
   captureMicrophone: true,
   captureSystemAudio: true,
-  sampleRate: 16000, // Оптимально для Whisper
-  channels: 1, // Моно для лучшего распознавания речи
+  sampleRate: 16000, // Optimal for Whisper
+  channels: 1, // Mono for better speech recognition
 };
 
-// Настройка сервиса аудиозахвата
+// Set up audio capture service
 export function setupAudioCapture(mainWindow: BrowserWindow): void {
   console.log("Setting up audio capture service...");
 
-  // Отправка настроек захвата аудио в рендерер
+  // Function to send capture settings to renderer
   const sendCaptureSettings = () => {
     mainWindow.webContents.send("audio-capture-settings", captureSettings);
     console.log("Sent audio capture settings to renderer", captureSettings);
   };
 
-  // Инициализация захвата аудио
+  // Initialize audio capture
   ipcMain.handle("initialize-audio-capture", async () => {
     try {
       console.log("Initializing audio capture...");
 
-      // Получаем список доступных аудиоисточников
-      const sources = await desktopCapturer.getSources({
-        types: ["audio"],
-        fetchWindowIcons: false,
-      });
-
-      console.log(`Found ${sources.length} audio sources`);
-
-      // Отправляем список источников в интерфейс
-      mainWindow.webContents.send("audio-sources", sources);
-
-      // Отправляем текущие настройки
+      // Send current settings
       sendCaptureSettings();
 
       return { success: true };
     } catch (error) {
-      console.error("Ошибка при инициализации захвата аудио:", error);
+      console.error("Error initializing audio capture:", error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Неизвестная ошибка",
+        error: error instanceof Error ? error.message : "Unknown error",
       };
     }
   });
 
-  // Обработчик для изменения настроек захвата
+  // Handler for updating capture settings
   ipcMain.handle(
     "update-audio-settings",
     (_, newSettings: Partial<AudioCaptureSettings>) => {
@@ -252,14 +244,14 @@ export function setupAudioCapture(mainWindow: BrowserWindow): void {
         ...newSettings,
       };
 
-      // Отправляем обновленные настройки в интерфейс
+      // Send updated settings to renderer
       sendCaptureSettings();
 
       return captureSettings;
     }
   );
 
-  // Начало захвата аудио
+  // Start audio capture
   ipcMain.handle("start-audio-capture", async (_, sourceId?: string) => {
     console.log("Received request to start audio capture", {
       sourceId,
@@ -274,7 +266,7 @@ export function setupAudioCapture(mainWindow: BrowserWindow): void {
       // Clear audio buffer at the start
       clearAudioBuffer();
 
-      // Отправляем команду в рендерер для начала захвата аудио через WebRTC
+      // Send command to renderer to start audio capture via WebRTC
       mainWindow.webContents.send("start-capture", {
         sourceId,
         settings: captureSettings,
@@ -284,15 +276,15 @@ export function setupAudioCapture(mainWindow: BrowserWindow): void {
       console.log("Audio capture started successfully");
       return { success: true };
     } catch (error) {
-      console.error("Ошибка при запуске захвата аудио:", error);
+      console.error("Error starting audio capture:", error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Неизвестная ошибка",
+        error: error instanceof Error ? error.message : "Unknown error",
       };
     }
   });
 
-  // Остановка захвата аудио
+  // Stop audio capture
   ipcMain.handle("stop-audio-capture", () => {
     console.log("Received request to stop audio capture", {
       isCurrentlyCapturing: isCapturing,
@@ -308,15 +300,15 @@ export function setupAudioCapture(mainWindow: BrowserWindow): void {
       console.log("Audio capture stopped successfully");
       return { success: true };
     } catch (error) {
-      console.error("Ошибка при остановке захвата аудио:", error);
+      console.error("Error stopping audio capture:", error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Неизвестная ошибка",
+        error: error instanceof Error ? error.message : "Unknown error",
       };
     }
   });
 
-  // Получение текущего состояния захвата
+  // Get current capture status
   ipcMain.handle("get-capture-status", () => {
     console.log("Getting capture status", {
       isCapturing,
@@ -328,22 +320,22 @@ export function setupAudioCapture(mainWindow: BrowserWindow): void {
     };
   });
 
-  // Обработка аудио данных из рендерера
+  // Process audio data from renderer
   ipcMain.on("audio-data", (_, audioData) => {
     if (!isCapturing) {
       console.log("Received audio data but not capturing, ignoring");
       return;
     }
 
-    // Пересылаем данные в whisper сервис
+    // Forward to whisper service
     mainWindow.webContents.send("process-audio-data", audioData);
     console.log(`Received and forwarded audio data: ${audioData.length} bytes`);
 
-    // CRUCIAL FIX: Directly add audio data to the Whisper buffer
+    // Add audio data to Whisper buffer
     addToAudioBuffer(audioData);
   });
 
-  // Сохранение временного аудиофайла (для отладки)
+  // Save debug audio file (for debugging)
   ipcMain.handle("save-debug-audio", (_, audioData: Buffer) => {
     try {
       const debugFilePath = join(app.getPath("temp"), "debug_audio.wav");
@@ -351,10 +343,10 @@ export function setupAudioCapture(mainWindow: BrowserWindow): void {
       console.log(`Saved debug audio to ${debugFilePath}`);
       return { success: true, path: debugFilePath };
     } catch (error) {
-      console.error("Ошибка при сохранении отладочного аудио:", error);
+      console.error("Error saving debug audio:", error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Неизвестная ошибка",
+        error: error instanceof Error ? error.message : "Unknown error",
       };
     }
   });

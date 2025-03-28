@@ -219,7 +219,13 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { join } from "path";
 import { spawnSync, spawn, execSync, exec } from "child_process";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  statSync,
+} from "fs";
 import { app } from "electron";
 import path from "path";
 
@@ -476,33 +482,86 @@ async function transcribeAudio(
 }
 
 // Добавление аудио данных в буфер
+// function addToAudioBuffer(audioData: Buffer) {
+//   const now = Date.now();
+
+//   // Добавляем новые данные
+//   audioBuffer.push({ data: audioData, timestamp: now });
+
+//   // Очищаем старые данные
+//   const cutoffTime = now - BUFFER_DURATION_MS;
+//   audioBuffer = audioBuffer.filter((item) => item.timestamp >= cutoffTime);
+
+//   // Log buffer growth periodically
+//   if (audioBuffer.length % 5 === 0) {
+//     logWhisper(
+//       `Audio buffer size: ${audioBuffer.length} chunks, total bytes: ${audioBuffer.reduce((acc, item) => acc + item.data.length, 0)}`
+//     );
+//   }
+// }
+
+// Очистка аудио буфера
+// export function clearAudioBuffer() {
+//   logWhisper("Clearing audio buffer");
+//   audioBuffer = [];
+// }
+
+// Добавление аудио данных в буфер с улучшенной обработкой и логированием
 function addToAudioBuffer(audioData: Buffer) {
   const now = Date.now();
 
-  // Добавляем новые данные
+  // Log more detailed information about the incoming audio data
+  console.log(
+    `[Whisper] Adding audio data to buffer: ${audioData.length} bytes`
+  );
+
+  // Check if the audioData is valid before adding to buffer
+  if (!audioData || audioData.length === 0) {
+    console.warn("[Whisper] Received empty audio data, ignoring");
+    return;
+  }
+
+  // Add the new data to buffer
   audioBuffer.push({ data: audioData, timestamp: now });
 
-  // Очищаем старые данные
+  // Clean up old data
   const cutoffTime = now - BUFFER_DURATION_MS;
+  const oldLength = audioBuffer.length;
   audioBuffer = audioBuffer.filter((item) => item.timestamp >= cutoffTime);
 
-  // Log buffer growth periodically
-  if (audioBuffer.length % 5 === 0) {
-    logWhisper(
-      `Audio buffer size: ${audioBuffer.length} chunks, total bytes: ${audioBuffer.reduce((acc, item) => acc + item.data.length, 0)}`
+  // Log detailed buffer stats periodically or when significant changes occur
+  const totalBytes = audioBuffer.reduce(
+    (acc, item) => acc + item.data.length,
+    0
+  );
+
+  console.log(
+    `[Whisper] Audio buffer updated: ${audioBuffer.length} chunks (${totalBytes} bytes), removed ${oldLength - audioBuffer.length} old chunks`
+  );
+}
+
+// Function to clear the audio buffer with better logging
+function clearAudioBuffer() {
+  console.log("[Whisper] Clearing audio buffer completely");
+  const oldLength = audioBuffer.length;
+
+  if (oldLength > 0) {
+    const totalBytes = audioBuffer.reduce(
+      (acc, item) => acc + item.data.length,
+      0
+    );
+    console.log(
+      `[Whisper] Discarding ${oldLength} chunks (${totalBytes} bytes)`
     );
   }
+
+  audioBuffer = [];
+  console.log("[Whisper] Audio buffer cleared");
 }
 
 // Получение последней транскрипции
 function getLastTranscription(): TranscriptionResult | null {
   return lastTranscription;
-}
-
-// Очистка аудио буфера
-export function clearAudioBuffer() {
-  logWhisper("Clearing audio buffer");
-  audioBuffer = [];
 }
 
 // Настройка сервиса Whisper
@@ -532,6 +591,72 @@ export function setupWhisperService(mainWindow: BrowserWindow): void {
     logWhisper(`Whisper found at: ${whisperExecutable}`);
   }
 
+  // // Обработчики IPC
+  // ipcMain.handle(
+  //   "transcribe-buffer",
+  //   async (_, options: { language?: "ru" | "en" | "pl" }) => {
+  //     logWhisper(
+  //       `Received transcribe-buffer request with options: ${JSON.stringify(options)}`
+  //     );
+
+  //     if (audioBuffer.length === 0) {
+  //       logWhisper("Audio buffer is empty, nothing to transcribe");
+  //       return null;
+  //     }
+
+  //     try {
+  //       // Объединяем все аудио данные из буфера
+  //       const combinedBuffer = Buffer.concat(
+  //         audioBuffer.map((item) => item.data)
+  //       );
+
+  //       logWhisper(`Combined buffer size: ${combinedBuffer.length} bytes`);
+
+  //       // Ensure temp directory exists
+  //       if (!existsSync(tempDir)) {
+  //         mkdirSync(tempDir, { recursive: true });
+  //       }
+
+  //       // Сохраняем во временный файл с уникальным именем
+  //       const tempAudioPath = join(
+  //         tempDir,
+  //         `audio_to_transcribe_${Date.now()}.wav`
+  //       );
+
+  //       logWhisper(`Saving audio to: ${tempAudioPath}`);
+  //       writeFileSync(tempAudioPath, combinedBuffer);
+
+  //       // Транскрибируем
+  //       const language = options.language || "ru";
+  //       const result = await transcribeAudio(
+  //         tempAudioPath,
+  //         language,
+  //         whisperExecutable
+  //       );
+
+  //       // Отправляем результат в интерфейс
+  //       if (result) {
+  //         logWhisper(`Sending transcription result to UI: "${result.text}"`);
+  //         mainWindow.webContents.send("transcription-result", result);
+  //       } else {
+  //         logWhisper("No transcription result to send to UI");
+  //       }
+
+  //       return result;
+  //     } catch (error) {
+  //       logWhisper(`Error transcribing buffer: ${error}`);
+
+  //       // Create a fallback transcription
+  //       const dummy = createDummyTranscription(options.language || "ru");
+  //       mainWindow.webContents.send("transcription-result", dummy);
+
+  //       return dummy;
+  //     }
+  //   }
+  // );
+
+  // Modified version of the transcribe-buffer IPC handler for whisper.ts
+
   // Обработчики IPC
   ipcMain.handle(
     "transcribe-buffer",
@@ -540,9 +665,23 @@ export function setupWhisperService(mainWindow: BrowserWindow): void {
         `Received transcribe-buffer request with options: ${JSON.stringify(options)}`
       );
 
+      // Check if there is any audio data to transcribe
       if (audioBuffer.length === 0) {
-        logWhisper("Audio buffer is empty, nothing to transcribe");
-        return null;
+        logWhisper("Audio buffer is empty, checking for dummy transcription");
+
+        // Create a dummy message if the buffer is empty
+        const dummyTranscription = createDummyTranscription(
+          options.language || "ru"
+        );
+        logWhisper(`Created dummy transcription: "${dummyTranscription.text}"`);
+
+        // Set as last transcription for consistency
+        lastTranscription = dummyTranscription;
+
+        // Send to renderer
+        mainWindow.webContents.send("transcription-result", dummyTranscription);
+
+        return dummyTranscription;
       }
 
       try {
@@ -550,22 +689,34 @@ export function setupWhisperService(mainWindow: BrowserWindow): void {
         const combinedBuffer = Buffer.concat(
           audioBuffer.map((item) => item.data)
         );
-
-        logWhisper(`Combined buffer size: ${combinedBuffer.length} bytes`);
+        logWhisper(
+          `Combined buffer size: ${combinedBuffer.length} bytes from ${audioBuffer.length} chunks`
+        );
 
         // Ensure temp directory exists
+        const tempDir = path.join(app.getPath("temp"), "whisper_audio");
         if (!existsSync(tempDir)) {
+          logWhisper(`Creating temp directory: ${tempDir}`);
           mkdirSync(tempDir, { recursive: true });
         }
 
-        // Сохраняем во временный файл с уникальным именем
+        // Generate a unique filename with timestamp
         const tempAudioPath = join(
           tempDir,
           `audio_to_transcribe_${Date.now()}.wav`
         );
 
+        // Save the combined audio to a file
         logWhisper(`Saving audio to: ${tempAudioPath}`);
         writeFileSync(tempAudioPath, combinedBuffer);
+
+        // Check the file was written correctly
+        if (!existsSync(tempAudioPath)) {
+          throw new Error(`Failed to write audio file to ${tempAudioPath}`);
+        }
+
+        const fileSize = statSync(tempAudioPath).size;
+        logWhisper(`Audio file saved successfully (${fileSize} bytes)`);
 
         // Транскрибируем
         const language = options.language || "ru";
@@ -575,7 +726,7 @@ export function setupWhisperService(mainWindow: BrowserWindow): void {
           whisperExecutable
         );
 
-        // Отправляем результат в интерфейс
+        // Send result to renderer
         if (result) {
           logWhisper(`Sending transcription result to UI: "${result.text}"`);
           mainWindow.webContents.send("transcription-result", result);
@@ -584,8 +735,8 @@ export function setupWhisperService(mainWindow: BrowserWindow): void {
         }
 
         return result;
-      } catch (error) {
-        logWhisper(`Error transcribing buffer: ${error}`);
+      } catch (err) {
+        logWhisper(`Error transcribing buffer: ${err}`);
 
         // Create a fallback transcription
         const dummy = createDummyTranscription(options.language || "ru");
@@ -617,4 +768,4 @@ export function setupWhisperService(mainWindow: BrowserWindow): void {
   logWhisper("Whisper service setup complete");
 }
 
-export { getLastTranscription, addToAudioBuffer };
+export { getLastTranscription, addToAudioBuffer, clearAudioBuffer };
