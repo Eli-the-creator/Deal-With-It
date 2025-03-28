@@ -1,190 +1,6 @@
-// import { BrowserWindow, ipcMain, desktopCapturer } from "electron";
-// import { join } from "path";
-// import { writeFileSync } from "fs";
-// import { app } from "electron";
-// import { addToAudioBuffer, clearAudioBuffer } from "./whisper";
-
-// // Настройки захвата аудио
-// interface AudioCaptureSettings {
-//   captureMicrophone: boolean;
-//   captureSystemAudio: boolean;
-//   sampleRate: number; // Частота дискретизации (обычно 16000 для Whisper)
-//   channels: number; // Количество каналов (1 - моно, 2 - стерео)
-// }
-
-// // Состояние захвата аудио
-// let isCapturing = false;
-// let captureSettings: AudioCaptureSettings = {
-//   captureMicrophone: true,
-//   captureSystemAudio: true,
-//   sampleRate: 16000, // Оптимально для Whisper
-//   channels: 1, // Моно для лучшего распознавания речи
-// };
-
-// // Настройка сервиса аудиозахвата
-// export function setupAudioCapture(mainWindow: BrowserWindow): void {
-//   console.log("Setting up audio capture service...");
-
-//   // Отправка настроек захвата аудио в рендерер
-//   const sendCaptureSettings = () => {
-//     mainWindow.webContents.send("audio-capture-settings", captureSettings);
-//     console.log("Sent audio capture settings to renderer", captureSettings);
-//   };
-
-//   // Инициализация захвата аудио
-//   ipcMain.handle("initialize-audio-capture", async () => {
-//     try {
-//       console.log("Initializing audio capture...");
-
-//       // Получаем список доступных аудиоисточников
-//       const sources = await desktopCapturer.getSources({
-//         types: ["audio"],
-//         fetchWindowIcons: false,
-//       });
-
-//       console.log(`Found ${sources.length} audio sources`);
-
-//       // Отправляем список источников в интерфейс
-//       mainWindow.webContents.send("audio-sources", sources);
-
-//       // Отправляем текущие настройки
-//       sendCaptureSettings();
-
-//       return { success: true };
-//     } catch (error) {
-//       console.error("Ошибка при инициализации захвата аудио:", error);
-//       return {
-//         success: false,
-//         error: error instanceof Error ? error.message : "Неизвестная ошибка",
-//       };
-//     }
-//   });
-
-//   // Обработчик для изменения настроек захвата
-//   ipcMain.handle(
-//     "update-audio-settings",
-//     (_, newSettings: Partial<AudioCaptureSettings>) => {
-//       console.log("Updating audio settings", newSettings);
-
-//       captureSettings = {
-//         ...captureSettings,
-//         ...newSettings,
-//       };
-
-//       // Отправляем обновленные настройки в интерфейс
-//       sendCaptureSettings();
-
-//       return captureSettings;
-//     }
-//   );
-
-//   // Начало захвата аудио
-//   ipcMain.handle("start-audio-capture", async (_, sourceId?: string) => {
-//     console.log("Received request to start audio capture", {
-//       sourceId,
-//       isAlreadyCapturing: isCapturing,
-//     });
-
-//     if (isCapturing) {
-//       return { success: true, alreadyCapturing: true };
-//     }
-
-//     try {
-//       // Clear audio buffer at the start
-//       clearAudioBuffer();
-
-//       // Отправляем команду в рендерер для начала захвата аудио через WebRTC
-//       mainWindow.webContents.send("start-capture", {
-//         sourceId,
-//         settings: captureSettings,
-//       });
-
-//       isCapturing = true;
-//       console.log("Audio capture started successfully");
-//       return { success: true };
-//     } catch (error) {
-//       console.error("Ошибка при запуске захвата аудио:", error);
-//       return {
-//         success: false,
-//         error: error instanceof Error ? error.message : "Неизвестная ошибка",
-//       };
-//     }
-//   });
-
-//   // Остановка захвата аудио
-//   ipcMain.handle("stop-audio-capture", () => {
-//     console.log("Received request to stop audio capture", {
-//       isCurrentlyCapturing: isCapturing,
-//     });
-
-//     if (!isCapturing) {
-//       return { success: true, notCapturing: true };
-//     }
-
-//     try {
-//       mainWindow.webContents.send("stop-capture");
-//       isCapturing = false;
-//       console.log("Audio capture stopped successfully");
-//       return { success: true };
-//     } catch (error) {
-//       console.error("Ошибка при остановке захвата аудио:", error);
-//       return {
-//         success: false,
-//         error: error instanceof Error ? error.message : "Неизвестная ошибка",
-//       };
-//     }
-//   });
-
-//   // Получение текущего состояния захвата
-//   ipcMain.handle("get-capture-status", () => {
-//     console.log("Getting capture status", {
-//       isCapturing,
-//       settings: captureSettings,
-//     });
-//     return {
-//       isCapturing,
-//       settings: captureSettings,
-//     };
-//   });
-
-//   // Обработка аудио данных из рендерера
-//   ipcMain.on("audio-data", (_, audioData) => {
-//     if (!isCapturing) {
-//       console.log("Received audio data but not capturing, ignoring");
-//       return;
-//     }
-
-//     // Пересылаем данные в whisper сервис
-//     mainWindow.webContents.send("process-audio-data", audioData);
-//     console.log(`Received and forwarded audio data: ${audioData.length} bytes`);
-
-//     // CRUCIAL FIX: Directly add audio data to the Whisper buffer
-//     addToAudioBuffer(audioData);
-//   });
-
-//   // Сохранение временного аудиофайла (для отладки)
-//   ipcMain.handle("save-debug-audio", (_, audioData: Buffer) => {
-//     try {
-//       const debugFilePath = join(app.getPath("temp"), "debug_audio.wav");
-//       writeFileSync(debugFilePath, audioData);
-//       console.log(`Saved debug audio to ${debugFilePath}`);
-//       return { success: true, path: debugFilePath };
-//     } catch (error) {
-//       console.error("Ошибка при сохранении отладочного аудио:", error);
-//       return {
-//         success: false,
-//         error: error instanceof Error ? error.message : "Неизвестная ошибка",
-//       };
-//     }
-//   });
-
-//   console.log("Audio capture service setup complete");
-// }
-
-// Fixed audio-capture.ts service in main process
 import { BrowserWindow, ipcMain } from "electron";
 import { join } from "path";
-import { writeFileSync } from "fs";
+import { writeFileSync, existsSync, mkdirSync } from "fs";
 import { app } from "electron";
 import { addToAudioBuffer, clearAudioBuffer } from "./whisper";
 
@@ -192,7 +8,7 @@ import { addToAudioBuffer, clearAudioBuffer } from "./whisper";
 interface AudioCaptureSettings {
   captureMicrophone: boolean;
   captureSystemAudio: boolean;
-  sampleRate: number; // Sample rate (usually 16000 for Whisper)
+  sampleRate: number; // Sample rate (usually 16000 for transcription)
   channels: number; // Number of channels (1 - mono, 2 - stereo)
 }
 
@@ -201,13 +17,13 @@ let isCapturing = false;
 let captureSettings: AudioCaptureSettings = {
   captureMicrophone: true,
   captureSystemAudio: true,
-  sampleRate: 16000, // Optimal for Whisper
+  sampleRate: 16000, // Optimal for speech recognition
   channels: 1, // Mono for better speech recognition
 };
 
 // Set up audio capture service
 export function setupAudioCapture(mainWindow: BrowserWindow): void {
-  console.log("Setting up audio capture service...");
+  console.log("Setting up audio capture service with FFmpeg support...");
 
   // Function to send capture settings to renderer
   const sendCaptureSettings = () => {
@@ -219,6 +35,12 @@ export function setupAudioCapture(mainWindow: BrowserWindow): void {
   ipcMain.handle("initialize-audio-capture", async () => {
     try {
       console.log("Initializing audio capture...");
+
+      // Ensure temporary directory exists
+      const tempDir = join(app.getPath("temp"), "deepgram_audio");
+      if (!existsSync(tempDir)) {
+        mkdirSync(tempDir, { recursive: true });
+      }
 
       // Send current settings
       sendCaptureSettings();
@@ -327,11 +149,11 @@ export function setupAudioCapture(mainWindow: BrowserWindow): void {
       return;
     }
 
-    // Forward to whisper service
+    // Forward to whisper service (now DeepGram)
     mainWindow.webContents.send("process-audio-data", audioData);
     console.log(`Received and forwarded audio data: ${audioData.length} bytes`);
 
-    // Add audio data to Whisper buffer
+    // Add audio data to transcription buffer
     addToAudioBuffer(audioData);
   });
 

@@ -3,8 +3,8 @@ Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 const electron = require("electron");
 const path = require("path");
 const utils = require("@electron-toolkit/utils");
-const child_process = require("child_process");
 const fs = require("fs");
+const sdk = require("@deepgram/sdk");
 const http = require("node:http");
 const https = require("node:https");
 const zlib = require("node:zlib");
@@ -18,71 +18,24 @@ require("node:path");
 let audioBuffer = [];
 let lastTranscription = null;
 const BUFFER_DURATION_MS = 5e3;
-function logWhisper(message, ...args) {
-  console.log(`[Whisper] ${message}`, ...args);
+let deepgramClient = null;
+function logDeepgram(message, ...args) {
+  console.log(`[DeepGram] ${message}`, ...args);
 }
-const getWhisperPath = () => {
-  const isProduction = electron.app.isPackaged;
-  const binName = process.platform === "win32" ? "whisper.exe" : "whisper";
-  if (isProduction) {
-    return path.join(process.resourcesPath, "bin", binName);
-  } else {
-    return path.join(electron.app.getAppPath(), "resources", "bin", binName);
-  }
-};
-const getModelPath = (modelName) => {
-  electron.app.isPackaged;
-  const possiblePaths = [
-    // Standard paths
-    path.join(process.resourcesPath, "models", `${modelName}.bin`),
-    path.join(electron.app.getAppPath(), "resources", "models", `${modelName}.bin`),
-    // Additional locations to check
-    path.join(electron.app.getPath("userData"), "models", `${modelName}.bin`),
-    path.join(electron.app.getPath("home"), ".whisper", "models", `${modelName}.bin`),
-    `/usr/local/share/whisper/models/${modelName}.bin`,
-    `/opt/whisper/models/${modelName}.bin`
-  ];
-  for (const p of possiblePaths) {
-    if (fs.existsSync(p)) {
-      logWhisper(`Found model at: ${p}`);
-      return p;
-    }
-  }
-  logWhisper(`Model not found in any location, using default path`);
-  return path.join(electron.app.getAppPath(), "resources", "models", `${modelName}.bin`);
-};
-function checkWhisperInstallation() {
+function initializeDeepgramClient() {
   try {
-    const whisperPath = getWhisperPath();
-    logWhisper(`Checking Whisper installation at: ${whisperPath}`);
-    if (!fs.existsSync(whisperPath)) {
-      logWhisper(`Whisper executable not found at: ${whisperPath}`);
-      try {
-        logWhisper(`Trying system whisper command...`);
-        if (process.platform === "darwin" || process.platform === "linux") {
-          const result = child_process.execSync("which whisper").toString().trim();
-          logWhisper(`Found system whisper at: ${result}`);
-          return result;
-        }
-      } catch (err) {
-        logWhisper(`No system whisper found: ${err}`);
-      }
+    const apiKey = process.env.DEEPGRAM_API_KEY || "";
+    if (!apiKey) {
+      logDeepgram(
+        "No DeepGram API key provided. Please configure it in the settings."
+      );
       return null;
     }
-    try {
-      const result = child_process.spawnSync(whisperPath, ["--version"]);
-      if (result.error) {
-        logWhisper(`Error checking Whisper version: ${result.error.message}`);
-        return null;
-      }
-      logWhisper(`Whisper version check successful`);
-      return whisperPath;
-    } catch (error) {
-      logWhisper(`Error running Whisper: ${error}`);
-      return null;
-    }
+    deepgramClient = sdk.createClient(apiKey);
+    logDeepgram("DeepGram client initialized successfully");
+    return deepgramClient;
   } catch (error) {
-    logWhisper(`Whisper not installed or not found: ${error}`);
+    logDeepgram("Failed to initialize DeepGram client:", error);
     return null;
   }
 }
@@ -93,115 +46,66 @@ function createDummyTranscription(language) {
     (acc, item) => acc + item.data.length,
     0
   );
-  const text = bufferSize > 0 ? `Запись аудио получена (${bufferSize} фрагментов, ${totalBytes} байт). Whisper модель не найдена. Проверьте установку.` : `Запись аудио пуста. Проверьте настройки микрофона. Whisper модель не найдена.`;
+  const text = bufferSize > 0 ? `Audio recording received (${bufferSize} fragments, ${totalBytes} bytes). DeepGram API not configured.` : `Audio recording is empty. Check microphone settings. DeepGram API not configured.`;
   return {
     text,
     timestamp: now,
     language
   };
 }
-async function transcribeAudio(audioPath, language = "ru", whisperExecutable) {
+async function transcribeAudioWithDeepgram(audioPath, language = "en") {
   try {
-    logWhisper(`Transcribing audio: ${audioPath} with language: ${language}`);
-    if (!whisperExecutable) {
-      logWhisper(
-        "No Whisper executable available, creating dummy transcription"
+    logDeepgram(
+      `Transcribing audio with DeepGram: ${audioPath} (language: ${language})`
+    );
+    const apiKey = process.env.DEEPGRAM_API_KEY || "";
+    if (!apiKey) {
+      logDeepgram(
+        "No DeepGram API key found, please configure it in settings."
       );
       return createDummyTranscription(language);
     }
-    const tempOutputPath = path.join(electron.app.getPath("temp"), "transcript.txt");
-    logWhisper(`Output will be written to: ${tempOutputPath}`);
-    const modelsDir = path.join(electron.app.getAppPath(), "resources", "models");
-    if (!fs.existsSync(modelsDir)) {
-      logWhisper(`Creating models directory: ${modelsDir}`);
-      fs.mkdirSync(modelsDir, { recursive: true });
-    }
-    const modelPath = getModelPath("small");
-    logWhisper(`Using model: ${modelPath}`);
-    if (!fs.existsSync(modelPath)) {
-      logWhisper(
-        `Model file not found: ${modelPath}, using dummy transcription`
-      );
+    const deepgram = sdk.createClient(apiKey);
+    const audioFile = fs.readFileSync(audioPath);
+    const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
+      audioFile,
+      {
+        model: "nova-2",
+        language,
+        // использование выбранного языка
+        smart_format: true,
+        punctuate: true
+      }
+    );
+    if (error) {
+      logDeepgram(`DeepGram API error: ${error}`);
       return createDummyTranscription(language);
     }
-    const langParam = language === "ru" ? [] : [`-l ${language}`];
-    return new Promise((resolve, reject) => {
-      logWhisper(`Spawning Whisper process: ${whisperExecutable}`);
-      logWhisper(
-        `Command parameters: -m ${modelPath} -f ${audioPath} -o ${tempOutputPath} ${langParam.join(" ")} --no-timestamps --single-segment`
-      );
-      const whisperProcess = child_process.spawn(whisperExecutable, [
-        "-m",
-        modelPath,
-        "-f",
-        audioPath,
-        "-o",
-        tempOutputPath,
-        ...langParam,
-        "--no-timestamps",
-        "--single-segment"
-      ]);
-      whisperProcess.on("close", (code) => {
-        if (code !== 0) {
-          const errorMsg = `Whisper process exited with code ${code}`;
-          logWhisper(errorMsg);
-          const dummy = createDummyTranscription(language);
-          lastTranscription = dummy;
-          resolve(dummy);
-          return;
-        }
-        try {
-          logWhisper(`Reading transcription from: ${tempOutputPath}`);
-          if (fs.existsSync(tempOutputPath)) {
-            const transcription = fs.readFileSync(tempOutputPath, "utf-8").trim();
-            logWhisper(`Transcription result: "${transcription}"`);
-            if (transcription) {
-              lastTranscription = {
-                text: transcription,
-                timestamp: Date.now(),
-                language
-              };
-              resolve(lastTranscription);
-            } else {
-              logWhisper("Empty transcription, creating dummy");
-              const dummy = createDummyTranscription(language);
-              lastTranscription = dummy;
-              resolve(dummy);
-            }
-          } else {
-            logWhisper(`Output file not found: ${tempOutputPath}, using dummy`);
-            const dummy = createDummyTranscription(language);
-            lastTranscription = dummy;
-            resolve(dummy);
-          }
-        } catch (err) {
-          logWhisper(`Error reading transcription: ${err}`);
-          const dummy = createDummyTranscription(language);
-          lastTranscription = dummy;
-          resolve(dummy);
-        }
-      });
-      whisperProcess.stderr.on("data", (data) => {
-        logWhisper(`Whisper stderr: ${data}`);
-      });
-      whisperProcess.stdout.on("data", (data) => {
-        logWhisper(`Whisper stdout: ${data}`);
-      });
-    });
+    const transcript = result?.results?.channels[0]?.alternatives[0]?.transcript;
+    if (!transcript) {
+      logDeepgram("No transcription available in DeepGram response");
+      return createDummyTranscription(language);
+    }
+    logDeepgram(`Transcription result: "${transcript}"`);
+    const transcriptionResult = {
+      text: transcript,
+      timestamp: Date.now(),
+      language
+    };
+    lastTranscription = transcriptionResult;
+    return transcriptionResult;
   } catch (error) {
-    logWhisper(`Error in transcribeAudio: ${error}`);
-    const dummy = createDummyTranscription(language);
-    lastTranscription = dummy;
-    return dummy;
+    logDeepgram(`Error in transcribeAudioWithDeepgram: ${error}`);
+    return createDummyTranscription(language);
   }
 }
 function addToAudioBuffer(audioData) {
   const now = Date.now();
   console.log(
-    `[Whisper] Adding audio data to buffer: ${audioData.length} bytes`
+    `[DeepGram] Adding audio data to buffer: ${audioData.length} bytes`
   );
   if (!audioData || audioData.length === 0) {
-    console.warn("[Whisper] Received empty audio data, ignoring");
+    console.warn("[DeepGram] Received empty audio data, ignoring");
     return;
   }
   audioBuffer.push({ data: audioData, timestamp: now });
@@ -213,11 +117,11 @@ function addToAudioBuffer(audioData) {
     0
   );
   console.log(
-    `[Whisper] Audio buffer updated: ${audioBuffer.length} chunks (${totalBytes} bytes), removed ${oldLength - audioBuffer.length} old chunks`
+    `[DeepGram] Audio buffer updated: ${audioBuffer.length} chunks (${totalBytes} bytes), removed ${oldLength - audioBuffer.length} old chunks`
   );
 }
 function clearAudioBuffer() {
-  console.log("[Whisper] Clearing audio buffer completely");
+  console.log("[DeepGram] Clearing audio buffer completely");
   const oldLength = audioBuffer.length;
   if (oldLength > 0) {
     const totalBytes = audioBuffer.reduce(
@@ -225,47 +129,34 @@ function clearAudioBuffer() {
       0
     );
     console.log(
-      `[Whisper] Discarding ${oldLength} chunks (${totalBytes} bytes)`
+      `[DeepGram] Discarding ${oldLength} chunks (${totalBytes} bytes)`
     );
   }
   audioBuffer = [];
-  console.log("[Whisper] Audio buffer cleared");
+  console.log("[DeepGram] Audio buffer cleared");
 }
 function getLastTranscription() {
   return lastTranscription;
 }
 function setupWhisperService(mainWindow2) {
-  logWhisper("Setting up Whisper service");
-  const tempDir = path.join(electron.app.getPath("temp"), "whisper_audio");
+  logDeepgram("Setting up DeepGram transcription service");
+  const tempDir = path.join(electron.app.getPath("temp"), "deepgram_audio");
   if (!fs.existsSync(tempDir)) {
-    logWhisper(`Creating temp directory: ${tempDir}`);
+    logDeepgram(`Creating temp directory: ${tempDir}`);
     fs.mkdirSync(tempDir, { recursive: true });
   }
-  const whisperExecutable = checkWhisperInstallation();
-  if (!whisperExecutable) {
-    logWhisper(
-      "Whisper не установлен или неверно настроен, будет возвращать dummy транскрипции"
-    );
-    mainWindow2.webContents.send("whisper-status", {
-      status: "warning",
-      message: "Whisper не установлен или не найден, будет использоваться тестовый режим"
-    });
-  } else {
-    logWhisper(`Whisper found at: ${whisperExecutable}`);
-  }
+  initializeDeepgramClient();
   electron.ipcMain.handle(
     "transcribe-buffer",
     async (_, options) => {
-      logWhisper(
+      logDeepgram(
         `Received transcribe-buffer request with options: ${JSON.stringify(options)}`
       );
       if (audioBuffer.length === 0) {
-        logWhisper("Audio buffer is empty, checking for dummy transcription");
+        logDeepgram("Audio buffer is empty, returning dummy transcription");
         const dummyTranscription = createDummyTranscription(
-          options.language || "ru"
+          options.language || "en"
         );
-        logWhisper(`Created dummy transcription: "${dummyTranscription.text}"`);
-        lastTranscription = dummyTranscription;
         mainWindow2.webContents.send("transcription-result", dummyTranscription);
         return dummyTranscription;
       }
@@ -273,48 +164,40 @@ function setupWhisperService(mainWindow2) {
         const combinedBuffer = Buffer.concat(
           audioBuffer.map((item) => item.data)
         );
-        logWhisper(
+        logDeepgram(
           `Combined buffer size: ${combinedBuffer.length} bytes from ${audioBuffer.length} chunks`
         );
-        const tempDir2 = path.join(electron.app.getPath("temp"), "whisper_audio");
-        if (!fs.existsSync(tempDir2)) {
-          logWhisper(`Creating temp directory: ${tempDir2}`);
-          fs.mkdirSync(tempDir2, { recursive: true });
-        }
         const tempAudioPath = path.join(
-          tempDir2,
+          tempDir,
           `audio_to_transcribe_${Date.now()}.wav`
         );
-        logWhisper(`Saving audio to: ${tempAudioPath}`);
+        logDeepgram(`Saving audio to: ${tempAudioPath}`);
         fs.writeFileSync(tempAudioPath, combinedBuffer);
         if (!fs.existsSync(tempAudioPath)) {
           throw new Error(`Failed to write audio file to ${tempAudioPath}`);
         }
-        const fileSize = statSync(tempAudioPath).size;
-        logWhisper(`Audio file saved successfully (${fileSize} bytes)`);
-        const language = options.language || "ru";
-        const result = await transcribeAudio(
+        const language = options.language || "en";
+        const result = await transcribeAudioWithDeepgram(
           tempAudioPath,
-          language,
-          whisperExecutable
+          language
         );
         if (result) {
-          logWhisper(`Sending transcription result to UI: "${result.text}"`);
+          logDeepgram(`Sending transcription result to UI: "${result.text}"`);
           mainWindow2.webContents.send("transcription-result", result);
         } else {
-          logWhisper("No transcription result to send to UI");
+          logDeepgram("No transcription result to send to UI");
         }
         return result;
       } catch (err) {
-        logWhisper(`Error transcribing buffer: ${err}`);
-        const dummy = createDummyTranscription(options.language || "ru");
+        logDeepgram(`Error transcribing buffer: ${err}`);
+        const dummy = createDummyTranscription(options.language || "en");
         mainWindow2.webContents.send("transcription-result", dummy);
         return dummy;
       }
     }
   );
   electron.ipcMain.handle("get-last-transcription", () => {
-    logWhisper(
+    logDeepgram(
       `Returning last transcription: ${lastTranscription?.text || "none"}`
     );
     return lastTranscription;
@@ -324,9 +207,9 @@ function setupWhisperService(mainWindow2) {
   });
   mainWindow2.webContents.send("whisper-status", {
     status: "ready",
-    message: "Модуль распознавания речи готов к работе"
+    message: "DeepGram transcription service ready"
   });
-  logWhisper("Whisper service setup complete");
+  logDeepgram("DeepGram transcription service setup complete");
 }
 function dataUriToBuffer(uri) {
   if (!/^data:/i.test(uri)) {
@@ -5133,7 +5016,7 @@ class Body {
       }
       return formData;
     }
-    const { toFormData } = await Promise.resolve().then(() => require("./multipart-parser-21DbbyP-.js"));
+    const { toFormData } = await Promise.resolve().then(() => require("./multipart-parser-zT7Kpd7U.js"));
     return toFormData(this.body, ct);
   }
   /**
@@ -6437,12 +6320,12 @@ let captureSettings = {
   captureMicrophone: true,
   captureSystemAudio: true,
   sampleRate: 16e3,
-  // Optimal for Whisper
+  // Optimal for speech recognition
   channels: 1
   // Mono for better speech recognition
 };
 function setupAudioCapture(mainWindow2) {
-  console.log("Setting up audio capture service...");
+  console.log("Setting up audio capture service with FFmpeg support...");
   const sendCaptureSettings = () => {
     mainWindow2.webContents.send("audio-capture-settings", captureSettings);
     console.log("Sent audio capture settings to renderer", captureSettings);
@@ -6450,6 +6333,10 @@ function setupAudioCapture(mainWindow2) {
   electron.ipcMain.handle("initialize-audio-capture", async () => {
     try {
       console.log("Initializing audio capture...");
+      const tempDir = path.join(electron.app.getPath("temp"), "deepgram_audio");
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
       sendCaptureSettings();
       return { success: true };
     } catch (error) {
@@ -6855,6 +6742,67 @@ function setupQueueService(mainWindow2) {
     return false;
   }
 }
+const getConfigPath = () => {
+  return path.join(electron.app.getPath("userData"), "deepgram-config.json");
+};
+const saveConfigToFile = (config2) => {
+  try {
+    fs.writeFileSync(getConfigPath(), JSON.stringify(config2, null, 2));
+    return true;
+  } catch (error) {
+    console.error("Error saving DeepGram config to file:", error);
+    return false;
+  }
+};
+const loadConfigFromFile = () => {
+  try {
+    if (fs.existsSync(getConfigPath())) {
+      const data = fs.readFileSync(getConfigPath(), "utf8");
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error("Error loading DeepGram config from file:", error);
+  }
+  return null;
+};
+function setupDeepgramService(mainWindow2) {
+  console.log("Setting up DeepGram service...");
+  electron.ipcMain.handle("load-deepgram-config", async () => {
+    try {
+      const config2 = loadConfigFromFile();
+      return config2 || { apiKey: "" };
+    } catch (error) {
+      console.error("Error loading DeepGram config:", error);
+      return { apiKey: "" };
+    }
+  });
+  electron.ipcMain.handle("save-deepgram-config", async (_, config2) => {
+    try {
+      const success = saveConfigToFile(config2);
+      if (success) {
+        process.env.DEEPGRAM_API_KEY = config2.apiKey;
+        return { success: true, config: config2 };
+      } else {
+        return {
+          success: false,
+          error: "Failed to save DeepGram configuration"
+        };
+      }
+    } catch (error) {
+      console.error("Error saving DeepGram config:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error"
+      };
+    }
+  });
+  const initialConfig = loadConfigFromFile();
+  if (initialConfig && initialConfig.apiKey) {
+    process.env.DEEPGRAM_API_KEY = initialConfig.apiKey;
+    console.log("DeepGram API key loaded from config");
+  }
+  console.log("DeepGram service setup complete");
+}
 let mainWindow = null;
 let isVisible = true;
 function createWindow() {
@@ -6895,6 +6843,7 @@ function createWindow() {
   setupGeminiService(mainWindow);
   setupAudioCapture(mainWindow);
   setupQueueService(mainWindow);
+  setupDeepgramService();
 }
 electron.app.whenReady().then(() => {
   utils.electronApp.setAppUserModelId("com.voice-copilot");

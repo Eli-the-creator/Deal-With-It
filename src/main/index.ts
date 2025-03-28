@@ -5,12 +5,11 @@
 //   globalShortcut,
 //   screen,
 //   ipcMain,
-//   desktopCapturer,
+//   desktopCapturer, // Added proper import here
 // } from "electron";
 // import { join } from "path";
 // import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 // import icon from "../../resources/icon.png?asset";
-// import { writeFileSync } from "fs";
 
 // // Импорт исходного кода системы
 // import { setupWhisperService } from "./services/whisper";
@@ -18,14 +17,6 @@
 // import { setupAudioCapture } from "./services/audio-capture";
 // import { registerHotkeys } from "./services/hotkeys";
 // import { setupQueueService } from "./services/queue";
-
-// // Настройки захвата аудио
-// interface AudioCaptureSettings {
-//   captureMicrophone: boolean;
-//   captureSystemAudio: boolean;
-//   sampleRate: number; // Частота дискретизации (обычно 16000 для Whisper)
-//   channels: number; // Количество каналов (1 - моно, 2 - стерео)
-// }
 
 // // Хранение окон приложения
 // let mainWindow: BrowserWindow | null = null;
@@ -133,18 +124,43 @@
 //   });
 
 //   // IPC обработчики
+//   // ipcMain.handle("is-screen-sharing", () => {
+//   //   // Во время демонстрации экрана скрываем приложение
+//   //   return mainWindow
+//   //     ?.getContentSource()
+//   //     .then((source) => {
+//   //       if (source && source.id) {
+//   //         mainWindow?.hide();
+//   //         return true;
+//   //       }
+//   //       return false;
+//   //     })
+//   //     .catch(() => false);
+//   // });
 //   ipcMain.handle("is-screen-sharing", () => {
-//     // Во время демонстрации экрана скрываем приложение
-//     return mainWindow
-//       ?.getContentSource()
-//       .then((source) => {
-//         if (source && source.id) {
-//           mainWindow?.hide();
-//           return true;
-//         }
+//     // During screen sharing we hide the application
+//     try {
+//       // Check if this method is available (it may not be in some Electron versions)
+//       if (mainWindow && typeof mainWindow.getContentSource === "function") {
+//         return mainWindow
+//           .getContentSource()
+//           .then((source) => {
+//             if (source && source.id) {
+//               mainWindow.hide();
+//               return true;
+//             }
+//             return false;
+//           })
+//           .catch(() => false);
+//       } else {
+//         // Fallback for Electron versions that don't support getContentSource
+//         console.log("getContentSource method not available, using fallback");
 //         return false;
-//       })
-//       .catch(() => false);
+//       }
+//     } catch (error) {
+//       console.error("Error checking screen sharing:", error);
+//       return false;
+//     }
 //   });
 
 //   // Восстановление окна при активации (macOS)
@@ -166,163 +182,8 @@
 //   globalShortcut.unregisterAll();
 // });
 
-// // Состояние захвата аудио
-// let isCapturing = false;
-// let captureSettings: AudioCaptureSettings = {
-//   captureMicrophone: true,
-//   captureSystemAudio: true,
-//   sampleRate: 16000, // Оптимально для Whisper
-//   channels: 1, // Моно для лучшего распознавания речи
-// };
-
-// // // Настройка сервиса аудиозахвата
-// export function setupAudioCapture(mainWindow: BrowserWindow): void {
-//   console.log("Setting up audio capture service...");
-
-//   // Отправка настроек захвата аудио в рендерер
-//   const sendCaptureSettings = () => {
-//     mainWindow.webContents.send("audio-capture-settings", captureSettings);
-//     console.log("Sent audio capture settings to renderer", captureSettings);
-//   };
-
-//   // Инициализация захвата аудио
-//   ipcMain.handle("initialize-audio-capture", async () => {
-//     try {
-//       console.log("Initializing audio capture...");
-
-//       // Получаем список доступных аудиоисточников
-//       const sources = await desktopCapturer.getSources({
-//         types: ["audio"],
-//         fetchWindowIcons: false,
-//       });
-
-//       console.log(`Found ${sources.length} audio sources`);
-
-//       // Отправляем список источников в интерфейс
-//       mainWindow.webContents.send("audio-sources", sources);
-
-//       // Отправляем текущие настройки
-//       sendCaptureSettings();
-
-//       return { success: true };
-//     } catch (error) {
-//       console.error("Ошибка при инициализации захвата аудио:", error);
-//       return {
-//         success: false,
-//         error: error instanceof Error ? error.message : "Неизвестная ошибка",
-//       };
-//     }
-//   });
-
-//   // Обработчик для изменения настроек захвата
-//   ipcMain.handle(
-//     "update-audio-settings",
-//     (_, newSettings: Partial<AudioCaptureSettings>) => {
-//       console.log("Updating audio settings", newSettings);
-
-//       captureSettings = {
-//         ...captureSettings,
-//         ...newSettings,
-//       };
-
-//       // Отправляем обновленные настройки в интерфейс
-//       sendCaptureSettings();
-
-//       return captureSettings;
-//     }
-//   );
-
-//   // Начало захвата аудио
-//   ipcMain.handle("start-audio-capture", async (_, sourceId?: string) => {
-//     console.log("Received request to start audio capture", {
-//       sourceId,
-//       isAlreadyCapturing: isCapturing,
-//     });
-
-//     if (isCapturing) {
-//       return { success: true, alreadyCapturing: true };
-//     }
-
-//     try {
-//       // Отправляем команду в рендерер для начала захвата аудио через WebRTC
-//       mainWindow.webContents.send("start-capture", {
-//         sourceId,
-//         settings: captureSettings,
-//       });
-
-//       isCapturing = true;
-//       console.log("Audio capture started successfully");
-//       return { success: true };
-//     } catch (error) {
-//       console.error("Ошибка при запуске захвата аудио:", error);
-//       return {
-//         success: false,
-//         error: error instanceof Error ? error.message : "Неизвестная ошибка",
-//       };
-//     }
-//   });
-
-//   // Остановка захвата аудио
-//   ipcMain.handle("stop-audio-capture", () => {
-//     console.log("Received request to stop audio capture", {
-//       isCurrentlyCapturing: isCapturing,
-//     });
-
-//     if (!isCapturing) {
-//       return { success: true, notCapturing: true };
-//     }
-
-//     try {
-//       mainWindow.webContents.send("stop-capture");
-//       isCapturing = false;
-//       console.log("Audio capture stopped successfully");
-//       return { success: true };
-//     } catch (error) {
-//       console.error("Ошибка при остановке захвата аудио:", error);
-//       return {
-//         success: false,
-//         error: error instanceof Error ? error.message : "Неизвестная ошибка",
-//       };
-//     }
-//   });
-
-//   // Получение текущего состояния захвата
-//   ipcMain.handle("get-capture-status", () => {
-//     console.log("Getting capture status", {
-//       isCapturing,
-//       settings: captureSettings,
-//     });
-//     return {
-//       isCapturing,
-//       settings: captureSettings,
-//     };
-//   });
-
-//   // Обработка аудио данных из рендерера
-//   ipcMain.on("audio-data", (_, audioData) => {
-//     // Пересылаем данные в whisper сервис
-//     mainWindow.webContents.send("process-audio-data", audioData);
-//     console.log(`Received and forwarded audio data: ${audioData.length} bytes`);
-//   });
-
-//   // Сохранение временного аудиофайла (для отладки)
-//   ipcMain.handle("save-debug-audio", (_, audioData: Buffer) => {
-//     try {
-//       const debugFilePath = join(app.getPath("temp"), "debug_audio.wav");
-//       writeFileSync(debugFilePath, audioData);
-//       console.log(`Saved debug audio to ${debugFilePath}`);
-//       return { success: true, path: debugFilePath };
-//     } catch (error) {
-//       console.error("Ошибка при сохранении отладочного аудио:", error);
-//       return {
-//         success: false,
-//         error: error instanceof Error ? error.message : "Неизвестная ошибка",
-//       };
-//     }
-//   });
-
-//   console.log("Audio capture service setup complete");
-// }
+// // Экспортируем desktopCapturer для использования в других модулях
+// export { desktopCapturer };
 
 import {
   app,
@@ -331,11 +192,10 @@ import {
   globalShortcut,
   screen,
   ipcMain,
-  desktopCapturer, // Added proper import here
+  desktopCapturer,
 } from "electron";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
-import icon from "../../resources/icon.png?asset";
 
 // Импорт исходного кода системы
 import { setupWhisperService } from "./services/whisper";
@@ -343,6 +203,7 @@ import { setupGeminiService } from "./services/gemini";
 import { setupAudioCapture } from "./services/audio-capture";
 import { registerHotkeys } from "./services/hotkeys";
 import { setupQueueService } from "./services/queue";
+import { setupDeepgramService } from "./services/deepgram-service";
 
 // Хранение окон приложения
 let mainWindow: BrowserWindow | null = null;
@@ -399,6 +260,7 @@ function createWindow(): void {
   setupGeminiService(mainWindow);
   setupAudioCapture(mainWindow);
   setupQueueService(mainWindow);
+  setupDeepgramService(mainWindow); // Initialize DeepGram service
 }
 
 // Инициализация приложения
@@ -450,19 +312,6 @@ app.whenReady().then(() => {
   });
 
   // IPC обработчики
-  // ipcMain.handle("is-screen-sharing", () => {
-  //   // Во время демонстрации экрана скрываем приложение
-  //   return mainWindow
-  //     ?.getContentSource()
-  //     .then((source) => {
-  //       if (source && source.id) {
-  //         mainWindow?.hide();
-  //         return true;
-  //       }
-  //       return false;
-  //     })
-  //     .catch(() => false);
-  // });
   ipcMain.handle("is-screen-sharing", () => {
     // During screen sharing we hide the application
     try {

@@ -30,13 +30,6 @@ const api = {
       electron.ipcRenderer.on("audio-capture-settings", handler);
       return () => electron.ipcRenderer.removeListener("audio-capture-settings", handler);
     },
-    // Обработчик начала/остановки захвата
-    // onCaptureControl: (callback: (command: { action: string }) => void) => {
-    //   const handler = (_: any, command: { action: string }) =>
-    //     callback(command);
-    //   ipcRenderer.on("capture-control", handler);
-    //   return () => ipcRenderer.removeListener("capture-control", handler);
-    // },
     onCaptureControl: (callback) => {
       const handler = (_, command) => callback(command);
       electron.ipcRenderer.on("capture-control", handler);
@@ -55,7 +48,7 @@ const api = {
       return () => electron.ipcRenderer.removeListener("stop-capture", handler);
     }
   },
-  // Распознавание речи (Whisper)
+  // Распознавание речи (DeepGram API)
   whisper: {
     // Транскрибирование текущего аудио буфера
     transcribeBuffer: (options) => electron.ipcRenderer.invoke("transcribe-buffer", options),
@@ -67,7 +60,7 @@ const api = {
       electron.ipcRenderer.on("transcription-result", handler);
       return () => electron.ipcRenderer.removeListener("transcription-result", handler);
     },
-    // Обработчик статуса Whisper
+    // Обработчик статуса сервиса транскрипции
     onWhisperStatus: (callback) => {
       const handler = (_, status) => callback(status);
       electron.ipcRenderer.on("whisper-status", handler);
@@ -79,6 +72,13 @@ const api = {
       electron.ipcRenderer.on("process-audio-data", handler);
       return () => electron.ipcRenderer.removeListener("process-audio-data", handler);
     }
+  },
+  // DeepGram API configuration
+  deepgram: {
+    // Load DeepGram configuration
+    loadConfig: () => electron.ipcRenderer.invoke("load-deepgram-config"),
+    // Save DeepGram configuration
+    saveConfig: (config) => electron.ipcRenderer.invoke("save-deepgram-config", config)
   },
   // Очередь запросов
   queue: {
