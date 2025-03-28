@@ -18,6 +18,9 @@ require("node:path");
 let audioBuffer = [];
 let lastTranscription = null;
 const BUFFER_DURATION_MS = 5e3;
+function logWhisper(message, ...args) {
+  console.log(`[Whisper] ${message}`, ...args);
+}
 const getWhisperPath = () => {
   const isProduction = electron.app.isPackaged;
   const binName = process.platform === "win32" ? "whisper.exe" : "whisper";
@@ -43,28 +46,78 @@ const getModelPath = (modelName) => {
 function checkWhisperInstallation() {
   try {
     const whisperPath = getWhisperPath();
-    const result = child_process.spawnSync(whisperPath, ["--version"]);
-    if (result.error) {
-      console.error(
-        "Ошибка при проверке установки Whisper:",
-        result.error.message
-      );
-      return false;
+    logWhisper(`Checking Whisper installation at: ${whisperPath}`);
+    if (!fs.existsSync(whisperPath)) {
+      logWhisper(`Whisper executable not found at: ${whisperPath}`);
+      try {
+        logWhisper(`Trying system whisper command...`);
+        if (process.platform === "darwin" || process.platform === "linux") {
+          const result = child_process.execSync("which whisper").toString().trim();
+          logWhisper(`Found system whisper at: ${result}`);
+          return result;
+        }
+      } catch (err) {
+        logWhisper(`No system whisper found: ${err}`);
+      }
+      return null;
     }
-    return true;
+    try {
+      const result = child_process.spawnSync(whisperPath, ["--version"]);
+      if (result.error) {
+        logWhisper(`Error checking Whisper version: ${result.error.message}`);
+        return null;
+      }
+      logWhisper(`Whisper version check successful`);
+      return whisperPath;
+    } catch (error) {
+      logWhisper(`Error running Whisper: ${error}`);
+      return null;
+    }
   } catch (error) {
-    console.error("Whisper не установлен или не найден:", error);
-    return false;
+    logWhisper(`Whisper not installed or not found: ${error}`);
+    return null;
   }
 }
-async function transcribeAudio(audioPath, language = "ru") {
+function createDummyTranscription(language) {
+  const now = Date.now();
+  const text = `This is a dummy transcription because Whisper is not properly configured. Timestamp: ${now}`;
+  return {
+    text,
+    timestamp: now,
+    language
+  };
+}
+async function transcribeAudio(audioPath, language = "ru", whisperExecutable) {
   try {
+    logWhisper(`Transcribing audio: ${audioPath} with language: ${language}`);
+    if (!whisperExecutable) {
+      logWhisper(
+        "No Whisper executable available, creating dummy transcription"
+      );
+      return createDummyTranscription(language);
+    }
     const tempOutputPath = path.join(electron.app.getPath("temp"), "transcript.txt");
-    const whisperPath = getWhisperPath();
+    logWhisper(`Output will be written to: ${tempOutputPath}`);
+    const modelsDir = path.join(electron.app.getAppPath(), "resources", "models");
+    if (!fs.existsSync(modelsDir)) {
+      logWhisper(`Creating models directory: ${modelsDir}`);
+      fs.mkdirSync(modelsDir, { recursive: true });
+    }
     const modelPath = getModelPath("small");
+    logWhisper(`Using model: ${modelPath}`);
+    if (!fs.existsSync(modelPath)) {
+      logWhisper(
+        `Model file not found: ${modelPath}, using dummy transcription`
+      );
+      return createDummyTranscription(language);
+    }
     const langParam = language === "ru" ? [] : [`-l ${language}`];
     return new Promise((resolve, reject) => {
-      const whisperProcess = child_process.spawn(whisperPath, [
+      logWhisper(`Spawning Whisper process: ${whisperExecutable}`);
+      logWhisper(
+        `Command parameters: -m ${modelPath} -f ${audioPath} -o ${tempOutputPath} ${langParam.join(" ")} --no-timestamps --single-segment`
+      );
+      const whisperProcess = child_process.spawn(whisperExecutable, [
         "-m",
         modelPath,
         "-f",
@@ -77,32 +130,56 @@ async function transcribeAudio(audioPath, language = "ru") {
       ]);
       whisperProcess.on("close", (code) => {
         if (code !== 0) {
-          reject(new Error(`Whisper завершился с кодом ${code}`));
+          const errorMsg = `Whisper process exited with code ${code}`;
+          logWhisper(errorMsg);
+          const dummy = createDummyTranscription(language);
+          lastTranscription = dummy;
+          resolve(dummy);
           return;
         }
         try {
-          const transcription = fs.readFileSync(tempOutputPath, "utf-8").trim();
-          if (transcription) {
-            lastTranscription = {
-              text: transcription,
-              timestamp: Date.now(),
-              language
-            };
-            resolve(lastTranscription);
+          logWhisper(`Reading transcription from: ${tempOutputPath}`);
+          if (fs.existsSync(tempOutputPath)) {
+            const transcription = fs.readFileSync(tempOutputPath, "utf-8").trim();
+            logWhisper(`Transcription result: "${transcription}"`);
+            if (transcription) {
+              lastTranscription = {
+                text: transcription,
+                timestamp: Date.now(),
+                language
+              };
+              resolve(lastTranscription);
+            } else {
+              logWhisper("Empty transcription, creating dummy");
+              const dummy = createDummyTranscription(language);
+              lastTranscription = dummy;
+              resolve(dummy);
+            }
           } else {
-            resolve(null);
+            logWhisper(`Output file not found: ${tempOutputPath}, using dummy`);
+            const dummy = createDummyTranscription(language);
+            lastTranscription = dummy;
+            resolve(dummy);
           }
         } catch (err) {
-          reject(err);
+          logWhisper(`Error reading transcription: ${err}`);
+          const dummy = createDummyTranscription(language);
+          lastTranscription = dummy;
+          resolve(dummy);
         }
       });
       whisperProcess.stderr.on("data", (data) => {
-        console.error(`Whisper stderr: ${data}`);
+        logWhisper(`Whisper stderr: ${data}`);
+      });
+      whisperProcess.stdout.on("data", (data) => {
+        logWhisper(`Whisper stdout: ${data}`);
       });
     });
   } catch (error) {
-    console.error("Ошибка при транскрипции аудио:", error);
-    return null;
+    logWhisper(`Error in transcribeAudio: ${error}`);
+    const dummy = createDummyTranscription(language);
+    lastTranscription = dummy;
+    return dummy;
   }
 }
 function addToAudioBuffer(audioData) {
@@ -110,50 +187,83 @@ function addToAudioBuffer(audioData) {
   audioBuffer.push({ data: audioData, timestamp: now });
   const cutoffTime = now - BUFFER_DURATION_MS;
   audioBuffer = audioBuffer.filter((item) => item.timestamp >= cutoffTime);
+  if (audioBuffer.length % 5 === 0) {
+    logWhisper(
+      `Audio buffer size: ${audioBuffer.length} chunks, total bytes: ${audioBuffer.reduce((acc, item) => acc + item.data.length, 0)}`
+    );
+  }
 }
 function getLastTranscription() {
   return lastTranscription;
 }
 function setupWhisperService(mainWindow2) {
-  const isWhisperInstalled = checkWhisperInstallation();
-  if (!isWhisperInstalled) {
-    console.error(
-      "Whisper не установлен. Функция распознавания речи не будет работать!"
+  logWhisper("Setting up Whisper service");
+  const tempDir = path.join(electron.app.getPath("temp"), "whisper_audio");
+  if (!fs.existsSync(tempDir)) {
+    logWhisper(`Creating temp directory: ${tempDir}`);
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+  const whisperExecutable = checkWhisperInstallation();
+  if (!whisperExecutable) {
+    logWhisper(
+      "Whisper не установлен или неверно настроен, будет возвращать dummy транскрипции"
     );
     mainWindow2.webContents.send("whisper-status", {
-      status: "error",
-      message: "Whisper не установлен или не найден"
+      status: "warning",
+      message: "Whisper не установлен или не найден, будет использоваться тестовый режим"
     });
-    return;
+  } else {
+    logWhisper(`Whisper found at: ${whisperExecutable}`);
   }
   electron.ipcMain.handle(
     "transcribe-buffer",
     async (_, options) => {
+      logWhisper(
+        `Received transcribe-buffer request with options: ${JSON.stringify(options)}`
+      );
       if (audioBuffer.length === 0) {
+        logWhisper("Audio buffer is empty, nothing to transcribe");
         return null;
       }
       try {
         const combinedBuffer = Buffer.concat(
           audioBuffer.map((item) => item.data)
         );
+        logWhisper(`Combined buffer size: ${combinedBuffer.length} bytes`);
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
         const tempAudioPath = path.join(
-          electron.app.getPath("temp"),
-          "audio_to_transcribe.wav"
+          tempDir,
+          `audio_to_transcribe_${Date.now()}.wav`
         );
+        logWhisper(`Saving audio to: ${tempAudioPath}`);
         fs.writeFileSync(tempAudioPath, combinedBuffer);
         const language = options.language || "ru";
-        const result = await transcribeAudio(tempAudioPath, language);
+        const result = await transcribeAudio(
+          tempAudioPath,
+          language,
+          whisperExecutable
+        );
         if (result) {
+          logWhisper(`Sending transcription result to UI: "${result.text}"`);
           mainWindow2.webContents.send("transcription-result", result);
+        } else {
+          logWhisper("No transcription result to send to UI");
         }
         return result;
       } catch (error) {
-        console.error("Ошибка при транскрибировании буфера:", error);
-        return null;
+        logWhisper(`Error transcribing buffer: ${error}`);
+        const dummy = createDummyTranscription(options.language || "ru");
+        mainWindow2.webContents.send("transcription-result", dummy);
+        return dummy;
       }
     }
   );
   electron.ipcMain.handle("get-last-transcription", () => {
+    logWhisper(
+      `Returning last transcription: ${lastTranscription?.text || "none"}`
+    );
     return lastTranscription;
   });
   electron.ipcMain.on("add-audio-data", (_, audioData) => {
@@ -163,6 +273,7 @@ function setupWhisperService(mainWindow2) {
     status: "ready",
     message: "Модуль распознавания речи готов к работе"
   });
+  logWhisper("Whisper service setup complete");
 }
 function dataUriToBuffer(uri) {
   if (!/^data:/i.test(uri)) {
@@ -6371,6 +6482,7 @@ function setupAudioCapture(mainWindow2) {
   electron.ipcMain.on("audio-data", (_, audioData) => {
     mainWindow2.webContents.send("process-audio-data", audioData);
     console.log(`Received and forwarded audio data: ${audioData.length} bytes`);
+    addToAudioBuffer(audioData);
   });
   electron.ipcMain.handle("save-debug-audio", (_, audioData) => {
     try {

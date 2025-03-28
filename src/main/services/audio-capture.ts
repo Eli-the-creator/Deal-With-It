@@ -145,6 +145,7 @@ import { BrowserWindow, ipcMain, desktopCapturer } from "electron";
 import { join } from "path";
 import { writeFileSync } from "fs";
 import { app } from "electron";
+import { addToAudioBuffer } from "./whisper";
 
 // Настройки захвата аудио
 interface AudioCaptureSettings {
@@ -287,10 +288,19 @@ export function setupAudioCapture(mainWindow: BrowserWindow): void {
   });
 
   // Обработка аудио данных из рендерера
+  //   ipcMain.on("audio-data", (_, audioData) => {
+  //     // Пересылаем данные в whisper сервис
+  //     mainWindow.webContents.send("process-audio-data", audioData);
+  //     console.log(`Received and forwarded audio data: ${audioData.length} bytes`);
+  //   });
+
   ipcMain.on("audio-data", (_, audioData) => {
     // Пересылаем данные в whisper сервис
     mainWindow.webContents.send("process-audio-data", audioData);
     console.log(`Received and forwarded audio data: ${audioData.length} bytes`);
+
+    // CRUCIAL FIX: Directly add audio data to the Whisper buffer
+    addToAudioBuffer(audioData);
   });
 
   // Сохранение временного аудиофайла (для отладки)
