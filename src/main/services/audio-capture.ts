@@ -2,6 +2,7 @@
 // import { join } from "path";
 // import { writeFileSync } from "fs";
 // import { app } from "electron";
+// import { addToAudioBuffer } from "./whisper";
 
 // // Настройки захвата аудио
 // interface AudioCaptureSettings {
@@ -22,19 +23,26 @@
 
 // // Настройка сервиса аудиозахвата
 // export function setupAudioCapture(mainWindow: BrowserWindow): void {
+//   console.log("Setting up audio capture service...");
+
 //   // Отправка настроек захвата аудио в рендерер
 //   const sendCaptureSettings = () => {
 //     mainWindow.webContents.send("audio-capture-settings", captureSettings);
+//     console.log("Sent audio capture settings to renderer", captureSettings);
 //   };
 
 //   // Инициализация захвата аудио
 //   ipcMain.handle("initialize-audio-capture", async () => {
 //     try {
+//       console.log("Initializing audio capture...");
+
 //       // Получаем список доступных аудиоисточников
 //       const sources = await desktopCapturer.getSources({
 //         types: ["audio"],
 //         fetchWindowIcons: false,
 //       });
+
+//       console.log(`Found ${sources.length} audio sources`);
 
 //       // Отправляем список источников в интерфейс
 //       mainWindow.webContents.send("audio-sources", sources);
@@ -56,6 +64,8 @@
 //   ipcMain.handle(
 //     "update-audio-settings",
 //     (_, newSettings: Partial<AudioCaptureSettings>) => {
+//       console.log("Updating audio settings", newSettings);
+
 //       captureSettings = {
 //         ...captureSettings,
 //         ...newSettings,
@@ -70,6 +80,11 @@
 
 //   // Начало захвата аудио
 //   ipcMain.handle("start-audio-capture", async (_, sourceId?: string) => {
+//     console.log("Received request to start audio capture", {
+//       sourceId,
+//       isAlreadyCapturing: isCapturing,
+//     });
+
 //     if (isCapturing) {
 //       return { success: true, alreadyCapturing: true };
 //     }
@@ -82,6 +97,7 @@
 //       });
 
 //       isCapturing = true;
+//       console.log("Audio capture started successfully");
 //       return { success: true };
 //     } catch (error) {
 //       console.error("Ошибка при запуске захвата аудио:", error);
@@ -94,6 +110,10 @@
 
 //   // Остановка захвата аудио
 //   ipcMain.handle("stop-audio-capture", () => {
+//     console.log("Received request to stop audio capture", {
+//       isCurrentlyCapturing: isCapturing,
+//     });
+
 //     if (!isCapturing) {
 //       return { success: true, notCapturing: true };
 //     }
@@ -101,6 +121,7 @@
 //     try {
 //       mainWindow.webContents.send("stop-capture");
 //       isCapturing = false;
+//       console.log("Audio capture stopped successfully");
 //       return { success: true };
 //     } catch (error) {
 //       console.error("Ошибка при остановке захвата аудио:", error);
@@ -113,6 +134,10 @@
 
 //   // Получение текущего состояния захвата
 //   ipcMain.handle("get-capture-status", () => {
+//     console.log("Getting capture status", {
+//       isCapturing,
+//       settings: captureSettings,
+//     });
 //     return {
 //       isCapturing,
 //       settings: captureSettings,
@@ -120,9 +145,19 @@
 //   });
 
 //   // Обработка аудио данных из рендерера
+//   //   ipcMain.on("audio-data", (_, audioData) => {
+//   //     // Пересылаем данные в whisper сервис
+//   //     mainWindow.webContents.send("process-audio-data", audioData);
+//   //     console.log(`Received and forwarded audio data: ${audioData.length} bytes`);
+//   //   });
+
 //   ipcMain.on("audio-data", (_, audioData) => {
 //     // Пересылаем данные в whisper сервис
 //     mainWindow.webContents.send("process-audio-data", audioData);
+//     console.log(`Received and forwarded audio data: ${audioData.length} bytes`);
+
+//     // CRUCIAL FIX: Directly add audio data to the Whisper buffer
+//     addToAudioBuffer(audioData);
 //   });
 
 //   // Сохранение временного аудиофайла (для отладки)
@@ -130,6 +165,7 @@
 //     try {
 //       const debugFilePath = join(app.getPath("temp"), "debug_audio.wav");
 //       writeFileSync(debugFilePath, audioData);
+//       console.log(`Saved debug audio to ${debugFilePath}`);
 //       return { success: true, path: debugFilePath };
 //     } catch (error) {
 //       console.error("Ошибка при сохранении отладочного аудио:", error);
@@ -139,13 +175,15 @@
 //       };
 //     }
 //   });
+
+//   console.log("Audio capture service setup complete");
 // }
 
 import { BrowserWindow, ipcMain, desktopCapturer } from "electron";
 import { join } from "path";
 import { writeFileSync } from "fs";
 import { app } from "electron";
-import { addToAudioBuffer } from "./whisper";
+import { addToAudioBuffer, clearAudioBuffer } from "./whisper";
 
 // Настройки захвата аудио
 interface AudioCaptureSettings {
@@ -233,6 +271,9 @@ export function setupAudioCapture(mainWindow: BrowserWindow): void {
     }
 
     try {
+      // Clear audio buffer at the start
+      clearAudioBuffer();
+
       // Отправляем команду в рендерер для начала захвата аудио через WebRTC
       mainWindow.webContents.send("start-capture", {
         sourceId,
@@ -288,13 +329,12 @@ export function setupAudioCapture(mainWindow: BrowserWindow): void {
   });
 
   // Обработка аудио данных из рендерера
-  //   ipcMain.on("audio-data", (_, audioData) => {
-  //     // Пересылаем данные в whisper сервис
-  //     mainWindow.webContents.send("process-audio-data", audioData);
-  //     console.log(`Received and forwarded audio data: ${audioData.length} bytes`);
-  //   });
-
   ipcMain.on("audio-data", (_, audioData) => {
+    if (!isCapturing) {
+      console.log("Received audio data but not capturing, ignoring");
+      return;
+    }
+
     // Пересылаем данные в whisper сервис
     mainWindow.webContents.send("process-audio-data", audioData);
     console.log(`Received and forwarded audio data: ${audioData.length} bytes`);

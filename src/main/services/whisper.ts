@@ -256,16 +256,30 @@ const getWhisperPath = () => {
 const getModelPath = (modelName: string) => {
   const isProduction = app.isPackaged;
 
-  if (isProduction) {
-    return path.join(process.resourcesPath, "models", `${modelName}.bin`);
-  } else {
-    return path.join(
-      app.getAppPath(),
-      "resources",
-      "models",
-      `${modelName}.bin`
-    );
+  const possiblePaths = [
+    // Standard paths
+    path.join(process.resourcesPath, "models", `${modelName}.bin`),
+    path.join(app.getAppPath(), "resources", "models", `${modelName}.bin`),
+
+    // Additional locations to check
+    path.join(app.getPath("userData"), "models", `${modelName}.bin`),
+    path.join(app.getPath("home"), ".whisper", "models", `${modelName}.bin`),
+    `/usr/local/share/whisper/models/${modelName}.bin`,
+    `/opt/whisper/models/${modelName}.bin`,
+  ];
+
+  // Check if any of the paths exist
+  for (const p of possiblePaths) {
+    if (existsSync(p)) {
+      logWhisper(`Found model at: ${p}`);
+      return p;
+    }
   }
+
+  // If we didn't find an existing model, return the default path
+  // so that the error message will be more helpful
+  logWhisper(`Model not found in any location, using default path`);
+  return path.join(app.getAppPath(), "resources", "models", `${modelName}.bin`);
 };
 
 // Проверка установки Whisper
@@ -319,7 +333,18 @@ function createDummyTranscription(
   language: "ru" | "en" | "pl"
 ): TranscriptionResult {
   const now = Date.now();
-  const text = `This is a dummy transcription because Whisper is not properly configured. Timestamp: ${now}`;
+
+  // Generate a dummy message based on the buffer size to make debugging easier
+  const bufferSize = audioBuffer.length;
+  const totalBytes = audioBuffer.reduce(
+    (acc, item) => acc + item.data.length,
+    0
+  );
+
+  const text =
+    bufferSize > 0
+      ? `Запись аудио получена (${bufferSize} фрагментов, ${totalBytes} байт). Whisper модель не найдена. Проверьте установку.`
+      : `Запись аудио пуста. Проверьте настройки микрофона. Whisper модель не найдена.`;
 
   return {
     text,
@@ -472,6 +497,12 @@ function addToAudioBuffer(audioData: Buffer) {
 // Получение последней транскрипции
 function getLastTranscription(): TranscriptionResult | null {
   return lastTranscription;
+}
+
+// Очистка аудио буфера
+export function clearAudioBuffer() {
+  logWhisper("Clearing audio buffer");
+  audioBuffer = [];
 }
 
 // Настройка сервиса Whisper

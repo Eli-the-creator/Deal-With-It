@@ -31,17 +31,25 @@ const getWhisperPath = () => {
   }
 };
 const getModelPath = (modelName) => {
-  const isProduction = electron.app.isPackaged;
-  if (isProduction) {
-    return path.join(process.resourcesPath, "models", `${modelName}.bin`);
-  } else {
-    return path.join(
-      electron.app.getAppPath(),
-      "resources",
-      "models",
-      `${modelName}.bin`
-    );
+  electron.app.isPackaged;
+  const possiblePaths = [
+    // Standard paths
+    path.join(process.resourcesPath, "models", `${modelName}.bin`),
+    path.join(electron.app.getAppPath(), "resources", "models", `${modelName}.bin`),
+    // Additional locations to check
+    path.join(electron.app.getPath("userData"), "models", `${modelName}.bin`),
+    path.join(electron.app.getPath("home"), ".whisper", "models", `${modelName}.bin`),
+    `/usr/local/share/whisper/models/${modelName}.bin`,
+    `/opt/whisper/models/${modelName}.bin`
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      logWhisper(`Found model at: ${p}`);
+      return p;
+    }
   }
+  logWhisper(`Model not found in any location, using default path`);
+  return path.join(electron.app.getAppPath(), "resources", "models", `${modelName}.bin`);
 };
 function checkWhisperInstallation() {
   try {
@@ -80,7 +88,12 @@ function checkWhisperInstallation() {
 }
 function createDummyTranscription(language) {
   const now = Date.now();
-  const text = `This is a dummy transcription because Whisper is not properly configured. Timestamp: ${now}`;
+  const bufferSize = audioBuffer.length;
+  const totalBytes = audioBuffer.reduce(
+    (acc, item) => acc + item.data.length,
+    0
+  );
+  const text = bufferSize > 0 ? `Запись аудио получена (${bufferSize} фрагментов, ${totalBytes} байт). Whisper модель не найдена. Проверьте установку.` : `Запись аудио пуста. Проверьте настройки микрофона. Whisper модель не найдена.`;
   return {
     text,
     timestamp: now,
@@ -195,6 +208,10 @@ function addToAudioBuffer(audioData) {
 }
 function getLastTranscription() {
   return lastTranscription;
+}
+function clearAudioBuffer() {
+  logWhisper("Clearing audio buffer");
+  audioBuffer = [];
 }
 function setupWhisperService(mainWindow2) {
   logWhisper("Setting up Whisper service");
@@ -6434,6 +6451,7 @@ function setupAudioCapture(mainWindow2) {
       return { success: true, alreadyCapturing: true };
     }
     try {
+      clearAudioBuffer();
       mainWindow2.webContents.send("start-capture", {
         sourceId,
         settings: captureSettings
@@ -6480,6 +6498,10 @@ function setupAudioCapture(mainWindow2) {
     };
   });
   electron.ipcMain.on("audio-data", (_, audioData) => {
+    if (!isCapturing) {
+      console.log("Received audio data but not capturing, ignoring");
+      return;
+    }
     mainWindow2.webContents.send("process-audio-data", audioData);
     console.log(`Received and forwarded audio data: ${audioData.length} bytes`);
     addToAudioBuffer(audioData);
