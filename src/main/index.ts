@@ -10,7 +10,7 @@ import {
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 
-// Импорт исходного кода системы
+// Import services
 import { setupWhisperService } from "./services/whisper";
 import { setupGeminiService } from "./services/gemini";
 import { setupAudioCapture } from "./services/audio-capture";
@@ -18,16 +18,16 @@ import { registerHotkeys } from "./services/hotkeys";
 import { setupQueueService } from "./services/queue";
 import { setupDeepgramService } from "./services/deepgram-service";
 
-// Хранение окон приложения
+// Application state
 let mainWindow: BrowserWindow | null = null;
 let isVisible = true;
 
 function createWindow(): void {
-  // Получаем размер основного экрана
+  // Get primary display size
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.workAreaSize;
 
-  // Создаем основное окно
+  // Create main window with settings that make it resistant to screen capture
   mainWindow = new BrowserWindow({
     width: 660,
     height: 320,
@@ -37,7 +37,7 @@ function createWindow(): void {
     frame: false,
     transparent: true,
     resizable: false,
-    skipTaskbar: false,
+    skipTaskbar: true, // Hide from taskbar
     alwaysOnTop: true,
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
@@ -45,51 +45,88 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
     },
+    // Set type to 'panel' for better on-top behavior
+    type: "panel",
+    // Set background color to transparent
+    backgroundColor: "#00000000",
   });
 
-  // Настраиваем поведение окна
+  // Enhanced screen capture resistance
+  mainWindow.setContentProtection(true); // Main property that blocks screen capture
+  mainWindow.setHiddenInMissionControl(true);
+  mainWindow.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+  });
+  mainWindow.setAlwaysOnTop(true, "floating", 1);
+
+  // Additional screen capture resistance settings for macOS
+  if (process.platform === "darwin") {
+    // Prevent window from being captured in screenshots
+    mainWindow.setWindowButtonVisibility(false);
+
+    // Prevent window from being included in window switcher
+    mainWindow.setSkipTaskbar(true);
+
+    // Disable window shadow
+    mainWindow.setHasShadow(false);
+  }
+
+  // Prevent performance throttling when window is not focused
+  mainWindow.webContents.setBackgroundThrottling(false);
+  mainWindow.webContents.setFrameRate(60);
+
+  // Configure window behavior
   mainWindow.on("ready-to-show", () => {
     mainWindow?.show();
   });
 
-  // Запрещаем изменение размеров окна
+  // Make sure window isn't resizable
   mainWindow.setResizable(false);
 
-  // Предотвращаем открытие внешних ссылок в приложении
+  // Prevent opening external links in the app
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
     return { action: "deny" };
   });
 
-  // Загружаем UI
+  // Load UI
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
     mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
   } else {
     mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
   }
 
-  // Инициализируем сервисы
+  // Initialize services
   setupWhisperService(mainWindow);
   setupGeminiService(mainWindow);
   setupAudioCapture(mainWindow);
   setupQueueService(mainWindow);
-  setupDeepgramService(mainWindow); // Initialize DeepGram service
+  setupDeepgramService(mainWindow);
 }
 
-// Инициализация приложения
+// Application initialization
 app.whenReady().then(() => {
-  // Установка ID для Windows
+  // Append switches for audio support (particularly important for macOS)
+  if (process.platform === "darwin") {
+    app.commandLine.appendSwitch("enable-speech-dispatcher");
+    app.commandLine.appendSwitch(
+      "use-file-for-fake-audio-capture",
+      "test-audio.wav"
+    );
+  }
+
+  // Set app user model ID for Windows
   electronApp.setAppUserModelId("com.voice-copilot");
 
-  // Настройка DevTools в режиме разработки
+  // Configure DevTools in development mode
   app.on("browser-window-created", (_, window) => {
     optimizer.watchWindowShortcuts(window);
   });
 
-  // Создаем главное окно
+  // Create main window
   createWindow();
 
-  // Регистрируем горячие клавиши
+  // Register hotkeys
   registerHotkeys({
     toggleVisibility: () => {
       if (mainWindow) {
@@ -104,7 +141,7 @@ app.whenReady().then(() => {
     moveWindow: (direction) => {
       if (mainWindow) {
         const [x, y] = mainWindow.getPosition();
-        const step = 62; // Шаг перемещения в пикселях
+        const step = 62; // Movement step in pixels
 
         switch (direction) {
           case "up":
@@ -124,51 +161,27 @@ app.whenReady().then(() => {
     },
   });
 
-  // IPC обработчики
-  ipcMain.handle("is-screen-sharing", () => {
-    // During screen sharing we hide the application
-    try {
-      // Check if this method is available (it may not be in some Electron versions)
-      if (mainWindow && typeof mainWindow.getContentSource === "function") {
-        return mainWindow
-          .getContentSource()
-          .then((source) => {
-            if (source && source.id) {
-              mainWindow.hide();
-              return true;
-            }
-            return false;
-          })
-          .catch(() => false);
-      } else {
-        // Fallback for Electron versions that don't support getContentSource
-        console.log("getContentSource method not available, using fallback");
-        return false;
-      }
-    } catch (error) {
-      console.error("Error checking screen sharing:", error);
-      return false;
-    }
-  });
+  // Remove the old screen sharing detection logic
+  // No longer need to check if sharing is active - window should always be invisible
+  // to screen capture regardless of sharing state
 
-  // Восстановление окна при активации (macOS)
+  // Handle app activation
   app.on("activate", function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
-// Корректное завершение работы приложения
+// Proper app shutdown
 app.on("window-all-closed", () => {
-  // На macOS обычно не закрываем приложение полностью
   if (process.platform !== "darwin") {
     app.quit();
   }
 });
 
-// Отмена регистрации горячих клавиш при выходе
+// Unregister hotkeys on exit
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
 });
 
-// Экспортируем desktopCapturer для использования в других модулях
+// Export desktopCapturer for use in other modules
 export { desktopCapturer };

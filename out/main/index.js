@@ -6817,15 +6817,33 @@ function createWindow() {
     frame: false,
     transparent: true,
     resizable: false,
-    skipTaskbar: false,
+    skipTaskbar: true,
+    // Hide from taskbar
     alwaysOnTop: true,
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false
-    }
+    },
+    // Set type to 'panel' for better on-top behavior
+    type: "panel",
+    // Set background color to transparent
+    backgroundColor: "#00000000"
   });
+  mainWindow.setContentProtection(true);
+  mainWindow.setHiddenInMissionControl(true);
+  mainWindow.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true
+  });
+  mainWindow.setAlwaysOnTop(true, "floating", 1);
+  if (process.platform === "darwin") {
+    mainWindow.setWindowButtonVisibility(false);
+    mainWindow.setSkipTaskbar(true);
+    mainWindow.setHasShadow(false);
+  }
+  mainWindow.webContents.setBackgroundThrottling(false);
+  mainWindow.webContents.setFrameRate(60);
   mainWindow.on("ready-to-show", () => {
     mainWindow?.show();
   });
@@ -6846,6 +6864,13 @@ function createWindow() {
   setupDeepgramService();
 }
 electron.app.whenReady().then(() => {
+  if (process.platform === "darwin") {
+    electron.app.commandLine.appendSwitch("enable-speech-dispatcher");
+    electron.app.commandLine.appendSwitch(
+      "use-file-for-fake-audio-capture",
+      "test-audio.wav"
+    );
+  }
   utils.electronApp.setAppUserModelId("com.voice-copilot");
   electron.app.on("browser-window-created", (_, window2) => {
     utils.optimizer.watchWindowShortcuts(window2);
@@ -6881,25 +6906,6 @@ electron.app.whenReady().then(() => {
             break;
         }
       }
-    }
-  });
-  electron.ipcMain.handle("is-screen-sharing", () => {
-    try {
-      if (mainWindow && typeof mainWindow.getContentSource === "function") {
-        return mainWindow.getContentSource().then((source) => {
-          if (source && source.id) {
-            mainWindow.hide();
-            return true;
-          }
-          return false;
-        }).catch(() => false);
-      } else {
-        console.log("getContentSource method not available, using fallback");
-        return false;
-      }
-    } catch (error) {
-      console.error("Error checking screen sharing:", error);
-      return false;
     }
   });
   electron.app.on("activate", function() {

@@ -2,29 +2,29 @@
 const electron = require("electron");
 const preload = require("@electron-toolkit/preload");
 const api = {
-  // Аудио и распознавание речи
+  // Audio and speech recognition
   audio: {
-    // Инициализация захвата аудио
+    // Initialize audio capture
     initAudioCapture: () => electron.ipcRenderer.invoke("initialize-audio-capture"),
-    // Обновление настроек аудио захвата
+    // Update audio capture settings
     updateAudioSettings: (newSettings) => electron.ipcRenderer.invoke("update-audio-settings", newSettings),
-    // Начать запись аудио
+    // Start audio recording
     startCapture: (sourceId) => electron.ipcRenderer.invoke("start-audio-capture", sourceId),
-    // Остановить запись аудио
+    // Stop audio recording
     stopCapture: () => electron.ipcRenderer.invoke("stop-audio-capture"),
-    // Получить текущий статус захвата аудио
+    // Get current audio capture status
     getCaptureStatus: () => electron.ipcRenderer.invoke("get-capture-status"),
-    // Отправить аудио данные в основной процесс
+    // Send audio data to main process
     sendAudioData: (audioData) => electron.ipcRenderer.send("audio-data", audioData),
-    // Сохранить аудио для отладки
+    // Save audio for debugging
     saveDebugAudio: (audioData) => electron.ipcRenderer.invoke("save-debug-audio", audioData),
-    // Обработчик для получения источников аудио
+    // Handler for receiving audio sources
     onAudioSources: (callback) => {
       const handler = (_, sources) => callback(sources);
       electron.ipcRenderer.on("audio-sources", handler);
       return () => electron.ipcRenderer.removeListener("audio-sources", handler);
     },
-    // Обработчик для получения настроек захвата аудио
+    // Handler for receiving audio capture settings
     onAudioSettings: (callback) => {
       const handler = (_, settings) => callback(settings);
       electron.ipcRenderer.on("audio-capture-settings", handler);
@@ -35,38 +35,38 @@ const api = {
       electron.ipcRenderer.on("capture-control", handler);
       return () => electron.ipcRenderer.removeListener("capture-control", handler);
     },
-    // Обработчик старта захвата
+    // Handler for start capture
     onStartCapture: (callback) => {
       const handler = (_, data) => callback(data);
       electron.ipcRenderer.on("start-capture", handler);
       return () => electron.ipcRenderer.removeListener("start-capture", handler);
     },
-    // Обработчик остановки захвата
+    // Handler for stop capture
     onStopCapture: (callback) => {
       const handler = () => callback();
       electron.ipcRenderer.on("stop-capture", handler);
       return () => electron.ipcRenderer.removeListener("stop-capture", handler);
     }
   },
-  // Распознавание речи (DeepGram API)
+  // Speech recognition (DeepGram API)
   whisper: {
-    // Транскрибирование текущего аудио буфера
+    // Transcribe current audio buffer
     transcribeBuffer: (options) => electron.ipcRenderer.invoke("transcribe-buffer", options),
-    // Получение последней транскрипции
+    // Get last transcription
     getLastTranscription: () => electron.ipcRenderer.invoke("get-last-transcription"),
-    // Обработчик для получения результатов транскрипции
+    // Handler for receiving transcription results
     onTranscriptionResult: (callback) => {
       const handler = (_, result) => callback(result);
       electron.ipcRenderer.on("transcription-result", handler);
       return () => electron.ipcRenderer.removeListener("transcription-result", handler);
     },
-    // Обработчик статуса сервиса транскрипции
+    // Handler for transcription service status
     onWhisperStatus: (callback) => {
       const handler = (_, status) => callback(status);
       electron.ipcRenderer.on("whisper-status", handler);
       return () => electron.ipcRenderer.removeListener("whisper-status", handler);
     },
-    // Обработчик для обработки аудио данных
+    // Handler for processing audio data
     onProcessAudioData: (callback) => {
       const handler = (_, audioData) => callback(audioData);
       electron.ipcRenderer.on("process-audio-data", handler);
@@ -80,65 +80,65 @@ const api = {
     // Save DeepGram configuration
     saveConfig: (config) => electron.ipcRenderer.invoke("save-deepgram-config", config)
   },
-  // Очередь запросов
+  // Request queue
   queue: {
-    // Добавление последней транскрипции в очередь
+    // Add last transcription to queue
     addLastTranscriptionToQueue: () => electron.ipcRenderer.invoke("add-last-transcription-to-queue"),
-    // Добавление скриншота в очередь
+    // Add screenshot to queue
     addScreenshotToQueue: () => electron.ipcRenderer.invoke("add-screenshot-to-queue"),
-    // Добавление содержимого буфера обмена в очередь
+    // Add clipboard content to queue
     addClipboardToQueue: () => electron.ipcRenderer.invoke("add-clipboard-to-queue"),
-    // Удаление элемента из очереди
+    // Remove item from queue
     removeFromQueue: (itemId) => electron.ipcRenderer.invoke("remove-from-queue", itemId),
-    // Очистка всей очереди
+    // Clear entire queue
     clearQueue: () => electron.ipcRenderer.invoke("clear-queue"),
-    // Получение текущей очереди
+    // Get current queue
     getQueue: () => electron.ipcRenderer.invoke("get-queue"),
-    // Обработчик обновления очереди
+    // Handler for queue updates
     onQueueUpdated: (callback) => {
       const handler = (_, queue) => callback(queue);
       electron.ipcRenderer.on("queue-updated", handler);
       return () => electron.ipcRenderer.removeListener("queue-updated", handler);
     }
   },
-  // Генерация ответов через Gemini
+  // Response generation via Gemini
   gemini: {
-    // Загрузка конфигурации Gemini
+    // Load Gemini configuration
     loadConfig: () => electron.ipcRenderer.invoke("load-gemini-config"),
-    // Сохранение конфигурации Gemini
+    // Save Gemini configuration
     saveConfig: (newConfig) => electron.ipcRenderer.invoke("save-gemini-config", newConfig),
-    // Генерация ответа
+    // Generate response
     generateResponse: (params) => electron.ipcRenderer.invoke("generate-response", params),
-    // Остановка генерации
+    // Stop generation
     stopGeneration: () => electron.ipcRenderer.invoke("stop-generation"),
-    // Получение статуса генерации
+    // Get generation status
     getGenerationStatus: () => electron.ipcRenderer.invoke("get-generation-status"),
-    // Обработчик для получения чанков генерации
+    // Handler for receiving generation chunks
     onGenerationChunk: (callback) => {
       const handler = (_, data) => callback(data);
       electron.ipcRenderer.on("generation-chunk", handler);
       return () => electron.ipcRenderer.removeListener("generation-chunk", handler);
     },
-    // Обработчик статуса генерации
+    // Handler for generation status
     onGenerationStatus: (callback) => {
       const handler = (_, status) => callback(status);
       electron.ipcRenderer.on("generation-status", handler);
       return () => electron.ipcRenderer.removeListener("generation-status", handler);
     }
   },
-  // Горячие клавиши
+  // Hotkeys
   hotkeys: {
-    // Получение списка горячих клавиш
+    // Get list of hotkeys
     getHotkeys: () => electron.ipcRenderer.invoke("get-hotkeys"),
-    // Обработчик горячих клавиш
+    // Handler for hotkey triggers
     onHotkeyTriggered: (callback) => {
       const handler = (_, action) => callback(action);
       electron.ipcRenderer.on("hotkey-triggered", handler);
       return () => electron.ipcRenderer.removeListener("hotkey-triggered", handler);
     }
-  },
-  // Проверка, идет ли демонстрация экрана
-  isScreenSharing: () => electron.ipcRenderer.invoke("is-screen-sharing")
+  }
+  // REMOVED: We no longer need the isScreenSharing method
+  // since the window is now natively resistant to screen capture
 };
 if (process.contextIsolated) {
   try {

@@ -6,20 +6,20 @@ import { useQueue } from "./hooks/useQueue";
 import { useGemini } from "./hooks/useGemini";
 import { useHotkeys } from "./hooks/useHotkeys";
 
-// Компоненты
+// Components
 import { MainPanel } from "./components/MainPanel";
 import { TranscriptionPanel } from "./components/TranscriptionPanel";
 import { QueuePanel } from "./components/QueuePanel";
 import { ResponsePanel } from "./components/ResponsePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 
-// Импортируем или создаем DebugPanel компонент, если он определен
+// Import or create DebugPanel component if defined
 let DebugPanel: React.FC<{ isVisible: boolean }>;
 try {
-  // Динамический импорт для предотвращения ошибок, если компонент не существует
+  // Dynamic import to prevent errors if component doesn't exist
   DebugPanel = require("./components/DebugPanel").DebugPanel;
 } catch (error) {
-  // Если компонент не найден, создаем заглушку
+  // If component isn't found, create a fallback
   DebugPanel = ({ isVisible }) =>
     isVisible ? (
       <div className="fixed bottom-4 right-4 bg-background/80 p-2 rounded border">
@@ -29,7 +29,7 @@ try {
   console.warn("DebugPanel component not found, using fallback");
 }
 
-// Простая реализация debugLog, если утилиты не загружаются
+// Simple debugLog implementation if utilities don't load
 const debugLog = (scope: string, message: string, data?: any) => {
   if (data) {
     console.log(`[${scope}] ${message}`, data);
@@ -38,7 +38,7 @@ const debugLog = (scope: string, message: string, data?: any) => {
   }
 };
 
-// Error Boundary для отлова ошибок рендеринга
+// Error Boundary to catch rendering errors
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean; error: Error | null }
@@ -70,24 +70,27 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-// Состояния интерфейса
+// UI states
 type UIMode = "compact" | "full";
 type ActivePanel = "transcription" | "queue" | "response" | "settings" | null;
 
 const App: React.FC = () => {
   console.log("App component rendering");
 
-  // Состояние загрузки
+  // Loading state
   const [isLoading, setIsLoading] = useState(true);
 
-  // Состояние UI
+  // UI state
   const [uiMode, setUIMode] = useState<UIMode>("full");
   const [activePanel, setActivePanel] = useState<ActivePanel>("transcription");
-  const [isVisible, setIsVisible] = useState(true);
+
+  // REMOVED: The isVisible state is no longer needed as it was tied to screen sharing detection
+  // The app will always be visible to the user but invisible to screen capture
+
   const [isDebugPanelVisible, setIsDebugPanelVisible] = useState(true); // Set to true for debugging
   const isTogglingRef = useRef<boolean>(false);
 
-  // Инициализация хуков для работы с сервисами
+  // Initialize hooks for working with services
   const { isCapturing, startCapture, stopCapture, captureStatus } =
     useAudioCapture();
 
@@ -160,10 +163,10 @@ const App: React.FC = () => {
               // Start a lightweight continuous transcription system
               // This doesn't actually transcribe during recording, just monitors
               setTimeout(() => {
-                startContinuousTranscription(500, "en");
+                startContinuousTranscription(2000, "en");
                 debugLog("App", "DeepGram monitoring started");
                 isTogglingRef.current = false;
-              }, 200);
+              }, 1000);
             } else {
               debugLog("App", "Failed to start audio capture");
               isTogglingRef.current = false;
@@ -288,7 +291,7 @@ const App: React.FC = () => {
     setActivePanel,
   ]);
 
-  // Обработка отправки очереди в Gemini
+  // Handling queue submission to Gemini
   const handleSendToLLM = async () => {
     if (queue.length === 0 || isGenerating) return;
 
@@ -304,7 +307,7 @@ const App: React.FC = () => {
     setActivePanel("response");
   };
 
-  // Регистрация обработчиков горячих клавиш
+  // Register hotkey handlers
   useHotkeys({
     onAddLastText: () => {
       console.log("Add last text hotkey triggered (CMD+O)");
@@ -368,8 +371,8 @@ const App: React.FC = () => {
 
     init();
 
-    // Remove the duplicate keyboard shortcut setup - IMPORTANT
-    // We'll rely entirely on the useHotkeys hook
+    // REMOVED: We don't need to check for screen sharing status anymore
+    // The window is natively resistant to screen capture
 
     return () => {
       debugLog("App", "Cleaning up on unmount");
@@ -385,41 +388,20 @@ const App: React.FC = () => {
     };
   }, [isCapturing, isTranscribing, stopCapture, stopContinuousTranscription]);
 
-  // Проверка демонстрации экрана
-  useEffect(() => {
-    const checkScreenSharing = async () => {
-      try {
-        const isSharing = await window.api.isScreenSharing();
-        setIsVisible(!isSharing);
-      } catch (error) {
-        console.error("Error checking screen sharing:", error);
-      }
-    };
-
-    // Проверка каждые 5 секунд
-    const interval = setInterval(checkScreenSharing, 5000);
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, []);
-
-  // Показываем индикатор загрузки, пока приложение инициализируется
+  // Show loading indicator while app initializes
   if (isLoading) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
         <p className="mt-4 text-muted-foreground">
-          Инициализация приложения...
+          Initializing application...
         </p>
       </div>
     );
   }
 
-  // Если приложение должно быть скрыто, рендерим пустой div
-  if (!isVisible) {
-    return <div className="hidden" />;
-  }
+  // REMOVED: We don't need to conditionally render based on isVisible anymore
+  // The app is always visible to the user but invisible to screen capture
 
   console.log("Rendering main UI", {
     isCapturing,
@@ -432,7 +414,7 @@ const App: React.FC = () => {
     <div
       className={`h-screen flex flex-col bg-background/80 backdrop-blur-sm rounded-lg overflow-hidden
                     transition-all duration-300 ease-in-out w-full`}>
-      {/* Основная панель управления */}
+      {/* Main control panel */}
       <MainPanel
         isCapturing={isCapturing}
         isGenerating={isGenerating}
@@ -446,11 +428,11 @@ const App: React.FC = () => {
         isTranscribing={isTranscribing}
       />
 
-      {/* Содержимое активной панели */}
+      {/* Active panel content */}
       <div className="flex-1 overflow-hidden">
         {uiMode === "full" && (
           <>
-            {/* Панель транскрипции */}
+            {/* Transcription panel */}
             {activePanel === "transcription" && (
               <TranscriptionPanel
                 lastTranscription={lastTranscription}
@@ -460,7 +442,7 @@ const App: React.FC = () => {
               />
             )}
 
-            {/* Панель очереди */}
+            {/* Queue panel */}
             {activePanel === "queue" && (
               <QueuePanel
                 queue={queue}
@@ -470,7 +452,7 @@ const App: React.FC = () => {
               />
             )}
 
-            {/* Панель ответа */}
+            {/* Response panel */}
             {activePanel === "response" && (
               <ResponsePanel
                 response={generatedResponse}
@@ -480,13 +462,13 @@ const App: React.FC = () => {
               />
             )}
 
-            {/* Панель настроек */}
+            {/* Settings panel */}
             {activePanel === "settings" && <SettingsPanel />}
           </>
         )}
       </div>
 
-      {/* Мини-панель для управления в компактном режиме */}
+      {/* Mini control panel for compact mode */}
       {uiMode === "compact" && (
         <div className="p-2 flex flex-col gap-2">
           <Button
@@ -495,9 +477,9 @@ const App: React.FC = () => {
             onClick={toggleCaptureAndTranscription}>
             {isCapturing
               ? isTranscribing
-                ? "Стоп+Добавить"
-                : "Стоп"
-              : "Начать запись"}
+                ? "Stop+Add"
+                : "Stop"
+              : "Start Recording"}
           </Button>
 
           <Button
@@ -505,11 +487,11 @@ const App: React.FC = () => {
             variant="outline"
             onClick={addLastTranscriptionToQueue}
             disabled={!lastTranscription}>
-            Добавить текст
+            Add Text
           </Button>
 
           <Button size="sm" variant="outline" onClick={addScreenshotToQueue}>
-            Скриншот
+            Screenshot
           </Button>
 
           <Button
@@ -517,22 +499,22 @@ const App: React.FC = () => {
             variant="default"
             onClick={handleSendToLLM}
             disabled={queue.length === 0 || isGenerating}>
-            Отправить
+            Send
           </Button>
         </div>
       )}
 
-      {/* Индикатор статуса в нижней части окна */}
+      {/* Status indicator at bottom of window */}
       <div className="px-4 py-2 text-xs text-muted-foreground border-t">
         <div className="flex justify-between">
           <span>
             {isCapturing
               ? isTranscribing
-                ? "Запись и транскрипция... (CMD+I для остановки и добавления в очередь)"
-                : "Запись..."
-              : "Запись остановлена"}
+                ? "Recording and transcribing... (CMD+I to stop and add to queue)"
+                : "Recording..."
+              : "Recording stopped"}
           </span>
-          <span>Элементов в очереди: {queue.length}</span>
+          <span>Queue items: {queue.length}</span>
         </div>
       </div>
 
@@ -542,11 +524,4 @@ const App: React.FC = () => {
   );
 };
 
-// Оборачиваем компонент в ErrorBoundary
-const AppWithErrorBoundary: React.FC = () => (
-  <ErrorBoundary>
-    <App />
-  </ErrorBoundary>
-);
-
-export default AppWithErrorBoundary;
+export default App;
